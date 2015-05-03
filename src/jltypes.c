@@ -372,17 +372,17 @@ static jl_value_t *ntuple_translate(jl_value_t *v)
 static jl_svec_t *ntuple_translate_data(jl_value_t **data, int n)
 {
     int i;
-    jl_value_t **protected;
-    JL_GC_PUSHARGS(protected, 2*n+1);
+    jl_value_t **gcprotected;
+    JL_GC_PUSHARGS(gcprotected, 2*n+1);
     for (i = 0; i < n; i++) {
-        protected[i] = data[i];
-        protected[i+n] = NULL;    // just in case
+        gcprotected[i] = data[i];
+        gcprotected[i+n] = NULL;    // just in case
     }
-    protected[2*n] = NULL;
+    gcprotected[2*n] = NULL;
     jl_svec_t *snew = jl_alloc_svec(n);
-    protected[2*n] = (jl_value_t*) snew;
+    gcprotected[2*n] = (jl_value_t*) snew;
     for (i = 0; i < n; i++)
-        protected[i+n] = jl_svecref(snew, i);
+        gcprotected[i+n] = jl_svecref(snew, i);
     assert(jl_is_svec(snew));
     for (i = 0; i < n; i++) {
         assert(jl_is_svec(snew));
@@ -511,6 +511,57 @@ static jl_value_t *intersect_union(jl_uniontype_t *a, jl_value_t *b,
     jl_value_t *tu = jl_type_union(t);
     JL_GC_POP();
     return tu;
+}
+
+/*
+Simplification of varargs tuple types:
+ JL_TUPLE_FIXED: tuples of known length (JL_VARARG_NONE or JL_VARARG_INT)
+ JL_TUPLE_VAR:   tuples of unknown length (JL_VARARG_BOUND or JL_VARARG_UNBOUND)
+
+In some cases, JL_VARARG_BOUND tuples get described as JL_TUPLE_FIXED,
+if the constraints on length are already known.
+*/
+typedef enum {
+    JL_TUPLE_FIXED = 0,
+    JL_TUPLE_VAR   = 1
+} JL_TUPLE_LENKIND;
+
+// Set the parameters for a single tuple
+// returns lenf, sets kind and lenkind
+static size_t data_vararg_params(jl_value_t **data, size_t lenr, cenv_t *eqc, JL_VARARG_KIND *kind, JL_TUPLE_LENKIND *lenkind)
+{
+    size_t lenf = lenr;
+    int i;
+    if (lenr == 0) {
+        *kind = JL_VARARG_NONE;
+        *lenkind = JL_TUPLE_FIXED;
+        return lenf;
+    }
+    *lenkind = JL_TUPLE_VAR;
+    *kind = jl_vararg_kind(data[lenr-1]);
+    if (*kind == JL_VARARG_NONE || *kind == JL_VARARG_INT)
+        *lenkind = JL_TUPLE_FIXED;
+    if (*kind == JL_VARARG_INT || *kind == JL_VARARG_BOUND) {
+        // try to set N from eqc parameters
+        jl_value_t *N = jl_tparam1(data[lenr-1]);
+        if (!jl_is_long(N) && eqc != NULL) {
+            for (i = 0; i < eqc->n; i+=2)
+                if (eqc->data[i] == N && jl_is_long(eqc->data[i+1])) {
+                    N = eqc->data[i+1];
+                    break;
+                }
+        }
+        if (jl_is_long(N)) {
+            lenf += jl_unbox_long(N)-1;
+            *lenkind = JL_TUPLE_FIXED;
+        }
+    }
+    return lenf;
+}
+
+static size_t tuple_vararg_params(jl_svec_t *a, cenv_t *eqc, JL_VARARG_KIND *kind, JL_TUPLE_LENKIND *lenkind)
+{
+    return data_vararg_params(jl_svec_data(a), jl_svec_len(a), eqc, kind, lenkind);
 }
 
 // if returns with *bot!=0, then intersection is Union{}
