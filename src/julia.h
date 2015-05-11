@@ -503,8 +503,6 @@ extern JL_DLLEXPORT jl_datatype_t *jl_simplevector_type;
 extern JL_DLLEXPORT jl_typename_t *jl_tuple_typename;
 extern JL_DLLEXPORT jl_datatype_t *jl_anytuple_type;
 #define jl_tuple_type jl_anytuple_type
-extern JL_DLLEXPORT jl_datatype_t *jl_ntuple_type;
-extern JL_DLLEXPORT jl_typename_t *jl_ntuple_typename;
 extern JL_DLLEXPORT jl_datatype_t *jl_vararg_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_tvar_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_task_type;
@@ -988,8 +986,7 @@ STATIC_INLINE int jl_is_tuple_type(void *t)
 
 STATIC_INLINE int jl_is_ntuple_type(jl_value_t *v)
 {
-    return (jl_is_datatype(v) &&
-            ((jl_datatype_t*)v)->name == jl_ntuple_typename);
+    return 0;
 }
 
 STATIC_INLINE int jl_is_type_type(jl_value_t *v)

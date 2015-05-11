@@ -106,7 +106,7 @@ function istopfunction(topmod, f, sym)
     return false
 end
 
-isknownlength(t::DataType) = !isvatuple(t) && !(t.name===NTuple.name && !isa(t.parameters[1],Int))
+isknownlength(t::DataType) = !isvatuple(t) || (length(t.parameters) == 1 && isa(t.parameters[1].parameters[2],Int))
 
 cmp_tfunc = (x,y)->Bool
 
@@ -270,9 +270,6 @@ const getfield_tfunc = function (A, s0, name)
     end
     if !isa(s,DataType)
         return Any, false
-    end
-    if is(s.name,NTuple.name)
-        return (name == Symbol ? Bottom : s.parameters[2]), true
     end
     if s.abstract
         return Any, false
@@ -796,8 +793,8 @@ function precise_container_types(args, types, vtypes, sv)
             return nothing
         elseif ti<:Tuple
             if i == n
-                if ti.name === NTuple.name
-                    result[i] = Any[Vararg{ti.parameters[2]}]
+                if isvatuple(ti) && length(ti.parameters) == 1
+                    result[i] = Any[Vararg{ti.parameters[1].parameters[1]}]
                 else
                     result[i] = ti.parameters
                 end

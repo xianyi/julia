@@ -74,6 +74,7 @@ export
     Irrational,
     Matrix,
     MergeSort,
+    NTuple,
     Nullable,
     ObjectIdDict,
     OrdinalRange,
