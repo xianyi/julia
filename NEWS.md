@@ -9,6 +9,9 @@ New language features
     However note that the argument types refer to the syntax tree representation, and not
     to the types of run time values.
 
+  * Varargs functions like `foo{T}(x::T...)` may now restrict the number
+    of such arguments using `foo{T,N}(x::Vararg{T,N})` ([#11242]).
+
   * `x ∈ X` is now a synonym for `x in X` in `for` loops and comprehensions,
     as it already was in comparisons ([#13824]).
 
@@ -18,6 +21,10 @@ Language changes
   * `using` and `import` are now case-sensitive even on case-insensitive filesystems (common on Mac and Windows) ([#13542]).
 
   * Relational symbols are now allowed as infix operators ([#8036]).
+
+  * The built-in `NTuple` type has been removed; `NTuple{N,T}` is now
+    implemented internally as `Tuple{Vararg{T,N}}` ([#11242]).
+
 
 Command-line option changes
 ---------------------------
@@ -1764,3 +1771,5 @@ Too numerous to mention.
 [#14243]: https://github.com/JuliaLang/julia/issues/14243
 [#14413]: https://github.com/JuliaLang/julia/issues/14413
 [#14424]: https://github.com/JuliaLang/julia/issues/14424
+[#11067]: https://github.com/JuliaLang/julia/issues/11067
+[#11242]: https://github.com/JuliaLang/julia/issues/11242
