@@ -769,6 +769,8 @@ UV_OBJ_TARGET := $(build_libdir)/libuv.la
 UV_CFLAGS :=
 ifeq ($(USEMSVC), 1)
 UV_CFLAGS += -DBUILDING_UV_SHARED
+else
+UV_CFLAGS += -std=gnu99
 endif
 ifeq ($(USEICC), 1)
 UV_CFLAGS += -static-intel
