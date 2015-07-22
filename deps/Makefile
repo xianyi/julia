@@ -798,7 +798,7 @@ $(UV_SRC_TARGET): $(BUILDDIR)/$(LIBUV_SRC_DIR)/config.status
 	touch -c $@
 $(BUILDDIR)/$(LIBUV_SRC_DIR)/checked: $(UV_SRC_TARGET)
 ifeq ($(OS),$(BUILD_OS))
-	-$(MAKE) -C $(dir $@) check
+	$(MAKE) -C $(dir $@) check
 endif
 	echo 1 > $@
 $(UV_OBJ_TARGET): $(UV_SRC_TARGET)
