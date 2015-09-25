@@ -2207,7 +2207,6 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
             return mark_julia_type(strct, false, ty);
         }
         Value *f1 = NULL;
-        int fieldStart = ctx->gc.argDepth;
         bool needroots = false;
         for (size_t i = 1;i < nargs;i++) {
             if (might_need_root(args[i])) {
@@ -2225,7 +2224,7 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
             f1 = boxed(fval_info, ctx);
             j++;
             if (might_need_root(args[1]) || !fval_info.isboxed)
-                make_gcroot(f1, ctx);
+                make_gcrooted(f1, ctx);
         }
         Value *strct = emit_allocobj(sty->size);
         jl_cgval_t strctinfo = mark_julia_type(strct, true, ty);
@@ -2236,12 +2235,11 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
             if (!jl_subtype(expr_type(args[1],ctx), jl_field_type(sty,0), 0))
                 emit_typecheck(f1info, jl_field_type(sty,0), "new", ctx);
             emit_setfield(sty, strctinfo, 0, f1info, ctx, false, false);
-            ctx->gc.argDepth = fieldStart;
             if (nf > 1 && needroots)
-                make_gcroot(strct, ctx);
+                make_gcrooted(strct, ctx);
         }
         else if (nf > 0 && needroots) {
-            make_gcroot(strct, ctx);
+            make_gcrooted(strct, ctx);
         }
         for(size_t i=j; i < nf; i++) {
             if (jl_field_isptr(sty, i)) {
@@ -2260,7 +2258,7 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
                 if (!needroots) {
                     // if this struct element needs boxing and we haven't rooted
                     // the struct, root it now.
-                    make_gcroot(strct, ctx);
+                    make_gcrooted(strct, ctx);
                     needroots = true;
                 }
                 need_wb = true;
@@ -2273,7 +2271,6 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
                 need_wb = true;
             emit_setfield(sty, strctinfo, i-1, rhs, ctx, false, need_wb);
         }
-        ctx->gc.argDepth = fieldStart;
         return strctinfo;
     }
     else if (!sty->mutabl) {
