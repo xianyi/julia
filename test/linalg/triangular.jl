@@ -11,7 +11,7 @@ srand(123)
 
 debug && println("Test basic type functionality")
 @test_throws DimensionMismatch LowerTriangular(randn(5, 4))
-@test LowerTriangular(randn(3, 3)) |> t -> [size(t, i) for i = 1:3] == [size(full(t), i) for i = 1:3]
+@test (t -> [size(t, i) for i = 1:3] == [size(full(t), i) for i = 1:3])(LowerTriangular(randn(3, 3)))
 
 # The following test block tries to call all methods in base/linalg/triangular.jl in order for a combination of input element types. Keep the ordering when adding code.
 for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
@@ -22,7 +22,15 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
                         (UnitLowerTriangular, :L))
 
         # Construct test matrix
-        A1 = t1(elty1 == Int ? rand(1:7, n, n) : convert(Matrix{elty1}, (elty1 <: Complex ? complex(randn(n, n), randn(n, n)) : randn(n, n)) |> t -> chol(t't, Val{uplo1})))
+        if elty1 == Int
+            A1 = t1(rand(1:7, n, n))
+        elseif elty1 <: Complex
+            A1 = t1(convert(Matrix{elty1},
+                (t -> chol(t't, Val{uplo1}))(complex(randn(n, n), randn(n, n)))))
+        else
+            A1 = t1(convert(Matrix{elty1},
+                (t -> chol(t't, Val{uplo1}))(randn(n, n))))
+        end
 
         debug && println("elty1: $elty1, A1: $t1")
 
@@ -206,7 +214,7 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
         @test_approx_eq_eps det(A1) det(lufact(full(A1))) sqrt(eps(real(float(one(elty1)))))*n*n
 
         # Matrix square root
-        @test sqrtm(A1) |> t->t*t ≈ A1
+        @test (t->t*t)(sqrtm(A1)) ≈ A1
 
         # naivesub errors
         @test_throws DimensionMismatch naivesub!(A1,ones(elty1,n+1))
@@ -243,7 +251,15 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
 
                 debug && println("elty1: $elty1, A1: $t1, elty2: $elty2")
 
-                A2 = t2(elty2 == Int ? rand(1:7, n, n) : convert(Matrix{elty2}, (elty2 <: Complex ? complex(randn(n, n), randn(n, n)) : randn(n, n)) |> t-> chol(t't, Val{uplo2})))
+                if elty2 == Int
+                    A2 = t2(rand(1:7, n, n))
+                elseif elty2 <: Complex
+                    A2 = t2(convert(Matrix{elty2},
+                        (t -> chol(t't, Val{uplo2}))(complex(randn(n, n), randn(n, n)))))
+                else
+                    A2 = t2(convert(Matrix{elty2},
+                        (t -> chol(t't, Val{uplo2}))(randn(n, n))))
+                end
 
                 # Convert
                 if elty1 <: Real && !(elty2 <: Integer)
@@ -330,9 +346,9 @@ end
 # Matrix square root
 Atn = UpperTriangular([-1 1 2; 0 -2 2; 0 0 -3])
 Atp = UpperTriangular([1 1 2; 0 2 2; 0 0 3])
-@test sqrtm(Atn) |> t->t*t ≈ Atn
+@test (t->t*t)(sqrtm(Atn)) ≈ Atn
 @test typeof(sqrtm(Atn)[1,1]) <: Complex
-@test sqrtm(Atp) |> t->t*t ≈ Atp
+@test (t->t*t)(sqrtm(Atp)) ≈ Atp
 @test typeof(sqrtm(Atp)[1,1]) <: Real
 
 Areal   = randn(n, n)/2
@@ -352,7 +368,8 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
         debug && println("\ntype of A: ", eltya, " type of b: ", eltyb, "\n")
 
         debug && println("Solve upper triangular system")
-        Atri = UpperTriangular(lufact(A)[:U]) |> t -> eltya <: Complex && eltyb <: Real ? real(t) : t # Here the triangular matrix can't be too badly conditioned
+        Atri = (t -> eltya <: Complex && eltyb <: Real ? real(t) : t)( # Here the triangular matrix can't be too badly conditioned
+            UpperTriangular(lufact(A)[:U]))
         b = convert(Matrix{eltyb}, eltya <: Complex ? full(Atri)*ones(n, 2) : full(Atri)*ones(n, 2))
         x = full(Atri) \ b
 
@@ -380,7 +397,8 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
         end
 
         debug && println("Solve lower triangular system")
-        Atri = UpperTriangular(lufact(A)[:U]) |> t -> eltya <: Complex && eltyb <: Real ? real(t) : t # Here the triangular matrix can't be too badly conditioned
+        Atri = (t -> eltya <: Complex && eltyb <: Real ? real(t) : t)( # Here the triangular matrix can't be too badly conditioned
+            UpperTriangular(lufact(A)[:U]))
         b = convert(Matrix{eltyb}, eltya <: Complex ? full(Atri)*ones(n, 2) : full(Atri)*ones(n, 2))
         x = full(Atri)\b
 

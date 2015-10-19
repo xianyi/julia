@@ -193,7 +193,7 @@ end
 
 function fuzzysort(search, candidates)
     scores = map(cand -> (fuzzyscore(search, cand), -levenshtein(search, cand)), candidates)
-    candidates[sortperm(scores)] |> reverse
+    reverse(candidates[sortperm(scores)])
 end
 
 # Levenshtein Distance
@@ -293,9 +293,9 @@ moduleusings(mod) = ccall(:jl_module_usings, Any, (Any,), mod)
 filtervalid(names) = filter(x->!ismatch(r"#", x), map(string, names))
 
 accessible(mod::Module) =
-    [names(mod, true, true);
+    filtervalid(unique([names(mod, true, true);
      map(names, moduleusings(mod))...;
-     builtins] |> unique |> filtervalid
+     builtins]))
 
 completions(name) = fuzzysort(name, accessible(current_module()))
 completions(name::Symbol) = completions(string(name))

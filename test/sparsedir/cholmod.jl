@@ -385,7 +385,7 @@ for elty in (Float64, Complex{Float64})
     @test_approx_eq logdet(ldltfact(A1pd)) logdet(full(A1pd))
     @test isposdef(A1pd)
     @test !isposdef(A1)
-    @test !isposdef(A1 + A1' |> t -> t - 2eigmax(full(t))*I)
+    @test !isposdef((t -> t - 2eigmax(full(t))*I)(A1 + A1'))
 
     if elty <: Real
         @test CHOLMOD.issym(Sparse(A1pd, 0))

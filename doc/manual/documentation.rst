@@ -372,11 +372,11 @@ Examining it's definition should serve as an example of how to use ``@__doc__`` 
    .. code-block:: julia
 
        macro example(f)
-           quote
+           esc(quote
                $(f)() = 0
                @__doc__ $(f)(x) = 1
                $(f)(x, y) = 2
-           end |> esc
+           end)
        end
 
    ``@__doc__`` has no effect when a macro that uses it is not documented.

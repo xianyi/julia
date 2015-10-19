@@ -61,7 +61,7 @@ function hashheader(stream::IO, md::MD)
             return false
 
         if c != '\n' # Empty header
-            h = readline(stream) |> strip
+            h = strip(readline(stream))
             h = match(r"(.*?)( +#+)?$", h).captures[1]
             buffer = IOBuffer()
             print(buffer, h)
@@ -76,11 +76,11 @@ end
 function setextheader(stream::IO, md::MD)
     withstream(stream) do
         eatindent(stream) || return false
-        header = readline(stream) |> strip
+        header = strip(readline(stream))
         header == "" && return false
 
         eatindent(stream) || return false
-        underline = readline(stream) |> strip
+        underline = strip(readline(stream))
         length(underline) < 3 && return false
         u = underline[1]
         u in "-=" || return false

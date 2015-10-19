@@ -45,7 +45,7 @@ function linecontains(io::IO, chars; allow_whitespace = true,
                                      eat = true,
                                      allowempty = false)
     start = position(io)
-    l = readline(io) |> chomp
+    l = chomp(readline(io))
     length(l) == 0 && return allowempty
 
     result = allowempty

@@ -13,10 +13,10 @@ for i = 1:10
     @test ones(0,0)*ones(0,4) == zeros(0,4)
     @test ones(3,0)*ones(0,0) == zeros(3,0)
     @test ones(0,0)*ones(0,0) == zeros(0,0)
-    @test Array(Float64, 5, 0) |> t -> t't == zeros(0,0)
-    @test Array(Float64, 5, 0) |> t -> t*t' == zeros(5,5)
-    @test Array(Complex128, 5, 0) |> t -> t't == zeros(0,0)
-    @test Array(Complex128, 5, 0) |> t -> t*t' == zeros(5,5)
+    @test (t -> t't)(Array(Float64, 5, 0)) == zeros(0,0)
+    @test (t -> t*t')(Array(Float64, 5, 0)) == zeros(5,5)
+    @test (t -> t't)(Array(Complex128, 5, 0)) == zeros(0,0)
+    @test (t -> t*t')(Array(Complex128, 5, 0)) == zeros(5,5)
 end
 
 # 2x2

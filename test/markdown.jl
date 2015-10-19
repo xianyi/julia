@@ -56,61 +56,61 @@ foo
 
 # Basic plain (markdown) output
 
-@test md"foo" |> plain == "foo\n"
-@test md"foo *bar* baz" |> plain == "foo *bar* baz\n"
-@test md"# title" |> plain == "# title\n"
-@test md"## section" |> plain == "## section\n"
-@test md"## section `foo`" |> plain == "## section `foo`\n"
-@test md"""Hello
+@test plain(md"foo") == "foo\n"
+@test plain(md"foo *bar* baz") == "foo *bar* baz\n"
+@test plain(md"# title") == "# title\n"
+@test plain(md"## section") == "## section\n"
+@test plain(md"## section `foo`") == "## section `foo`\n"
+@test plain(md"""Hello
 
 ---
-World""" |> plain == "Hello\n\n–––\n\nWorld\n"
-@test md"[*a*](b)" |> plain == "[*a*](b)\n"
-@test md"""
+World""") == "Hello\n\n–––\n\nWorld\n"
+@test plain(md"[*a*](b)") == "[*a*](b)\n"
+@test plain(md"""
 > foo
 >
 >   * bar
 >
 > ```
 > baz
-> ```""" |> plain == """> foo\n>\n>   * bar\n>\n> ```\n> baz\n> ```\n\n"""
+> ```""") == """> foo\n>\n>   * bar\n>\n> ```\n> baz\n> ```\n\n"""
 
 # HTML output
 
-@test md"foo *bar* baz" |> html == "<p>foo <em>bar</em> baz</p>\n"
-@test md"something ***" |> html == "<p>something ***</p>\n"
-@test md"# h1## " |> html == "<h1>h1##</h1>\n"
-@test md"## h2 ### " |> html == "<h2>h2</h2>\n"
-@test md"###### h6" |> html == "<h6>h6</h6>\n"
-@test md"####### h7" |> html == "<p>####### h7</p>\n"
-@test md"   >" |> html == "<blockquote>\n</blockquote>\n"
-@test md"1. Hello" |> html == "<ol>\n<li>Hello</li>\n</ol>\n"
-@test md"* World" |> html == "<ul>\n<li>World</li>\n</ul>\n"
-@test md"# title *blah*" |> html == "<h1>title <em>blah</em></h1>\n"
-@test md"## title *blah*" |> html == "<h2>title <em>blah</em></h2>\n"
-@test md"""Hello
+@test html(md"foo *bar* baz") == "<p>foo <em>bar</em> baz</p>\n"
+@test html(md"something ***") == "<p>something ***</p>\n"
+@test html(md"# h1## ") == "<h1>h1##</h1>\n"
+@test html(md"## h2 ### ") == "<h2>h2</h2>\n"
+@test html(md"###### h6") == "<h6>h6</h6>\n"
+@test html(md"####### h7") == "<p>####### h7</p>\n"
+@test html(md"   >") == "<blockquote>\n</blockquote>\n"
+@test html(md"1. Hello") == "<ol>\n<li>Hello</li>\n</ol>\n"
+@test html(md"* World") == "<ul>\n<li>World</li>\n</ul>\n"
+@test html(md"# title *blah*") == "<h1>title <em>blah</em></h1>\n"
+@test html(md"## title *blah*") == "<h2>title <em>blah</em></h2>\n"
+@test html(md"""Hello
 
 ---
-World""" |> html == "<p>Hello</p>\n<hr />\n<p>World</p>\n"
-@test md"`escape</code>`" |> html == "<p><code>escape&lt;/code&gt;</code></p>\n"
+World""") == "<p>Hello</p>\n<hr />\n<p>World</p>\n"
+@test html(md"`escape</code>`") == "<p><code>escape&lt;/code&gt;</code></p>\n"
 
-@test md"""
+@test html(md"""
     code1
 
     code2
-""" |> html == "<pre><code>code1\n\ncode2</code></pre>\n" # single code block
+""") == "<pre><code>code1\n\ncode2</code></pre>\n" # single code block
 
-# @test md"""
+# @test html(md"""
 # - Foo
 #  ---
-# - Bar""" |> html == "<ul>\n<li>Foo</li>\n</ul>\n<hr />\n<ul>\n<li>Bar</li>\n</ul>\n"
-@test md"""
+# - Bar""") == "<ul>\n<li>Foo</li>\n</ul>\n<hr />\n<ul>\n<li>Bar</li>\n</ul>\n"
+@test html(md"""
 h1
 ===
 h2
 ---
 not
-== =""" |> html == "<h1>h1</h1>\n<h2>h2</h2>\n<p>not &#61;&#61; &#61;</p>\n"
+== =""") == "<h1>h1</h1>\n<h2>h2</h2>\n<p>not &#61;&#61; &#61;</p>\n"
 
 # Latex output
 book = md"""

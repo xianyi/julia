@@ -20,7 +20,7 @@ function fencedcode(stream::IO, block::MD)
             line_start = position(stream)
             if startswith(stream, string(ch) ^ n)
                 if !startswith(stream, string(ch))
-                    push!(block, Code(flavor, takebuf_string(buffer) |> chomp))
+                    push!(block, Code(flavor, chomp(takebuf_string(buffer))))
                     return true
                 else
                     seek(stream, line_start)

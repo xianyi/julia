@@ -126,7 +126,7 @@ temp_dir() do dir
 
                 # set a remote branch
                 branch = "upstream"
-                LibGit2.GitRemote(repo, branch, repo_url) |> finalize
+                finalize(LibGit2.GitRemote(repo, branch, repo_url))
 
                 config = joinpath(cache_repo, ".git", "config")
                 lines = split(open(readall, config, "r"), "\n")
