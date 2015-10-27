@@ -39,6 +39,7 @@ type ResultMsg <: AbstractMsg
     value::Any
 end
 
+
 # Worker initialization messages
 type IdentifySocketMsg <: AbstractMsg
     from_pid::Int
@@ -213,14 +214,21 @@ function check_worker_state(w::Worker)
     end
 end
 
+# Number of bytes to use to indicate a boundary between messages on the wire.
+# A size of 10 bytes indicates ~ ~1e24 possible boundaries, so chance of collision with message
+# contents is trivial.
+const BOUNDARY_SIZE = 10
 
 function send_msg_(w::Worker, msg, now::Bool)
     check_worker_state(w)
     io = w.w_stream
     lock(io.lock)
     try
+        boundary = rand(UInt8, BOUNDARY_SIZE)
+        println("worker $(myid()) trying to send msg $msg")
+        write(io, boundary)
         serialize(io, msg)
-
+        write(io, boundary)
         if !now && w.gcflag
             flush_gc_msgs(w)
         else
@@ -273,8 +281,9 @@ type ProcessGroup
     workers::Array{Any,1}
     refs::Dict                  # global references
     topology::Symbol
+    error_log::Array{Any,1}
 
-    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict(), :all_to_all)
+    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict(), :all_to_all, Any[])
 end
 const PGRP = ProcessGroup([])
 
@@ -644,6 +653,16 @@ function showerror(io::IO, re::RemoteException)
     showerror(io, re.captured)
 end
 
+# Sent to the client in the event that that the client's message could not
+# be deserialized.
+type DeserializeErrorMsg <: AbstractMsg
+    remote_error :: RemoteException
+end
+
+function show(io::IO, err::DeserializeErrorMsg)
+    print(io, "Remote worker received could not deserialize a message:\n")
+    show(io, err.remote_error)
+end
 
 function run_work_thunk(thunk, print_error)
     local result
@@ -786,7 +805,7 @@ end
 
 function wait_ref(rid, callee, args...)
     v = fetch_ref(rid, args...)
-    if isa(v, RemoteException)
+    if isa(v, Remot1eException)
         if myid() == callee
             throw(v)
         else
@@ -862,10 +881,38 @@ process_messages(r_stream::IO, w_stream::IO) = @schedule message_handler_loop(r_
 function message_handler_loop(r_stream::IO, w_stream::IO)
     global PGRP
     global cluster_manager
-
     try
         while true
-            msg = deserialize(r_stream)
+            local msg
+            local boundary
+            try
+                boundary = readbytes(r_stream, BOUNDARY_SIZE)
+                msg = deserialize(r_stream)
+                boundary_end = readbytes(r_stream, BOUNDARY_SIZE)
+                # @assert boundary==boundary_end
+            catch e
+                # Deserialization error; discard bytes in stream until boundary found
+                boundary_idx = 1
+                while true
+                    # This may throw an EOF error if the terminal boundary was not written
+                    # correctly, triggering the higher-scoped catch block below
+                    byte = read(r_stream, UInt8)
+                    if byte == boundary[boundary_idx]
+                        boundary_idx += 1
+                        if boundary_idx > length(boundary)
+                            break
+                        end
+                    else
+                        boundary_idx = 1
+                    end
+                end
+                werr = r_stream |> worker_id_from_socket |> worker_from_id
+                send_msg(werr,
+                    CapturedException(e, catch_backtrace()) |>
+                    RemoteException |>
+                    DeserializeErrorMsg)
+                continue
+            end
             # println("got msg: ", msg)
             handle_msg(msg, r_stream, w_stream)
         end
@@ -925,6 +972,10 @@ end
 handle_msg(msg::RemoteDoMsg, r_stream, w_stream) = @schedule run_work_thunk(()->msg.f(msg.args...), true)
 
 handle_msg(msg::ResultMsg, r_stream, w_stream) = put!(lookup_ref(msg.response_oid), msg.value)
+
+function handle_msg(msg::DeserializeErrorMsg, r_stream, w_stream)
+    push!(PGRP.error_log, msg)
+end
 
 handle_msg(msg::IdentifySocketMsg, r_stream, w_stream) = Worker(msg.from_pid, r_stream, w_stream, cluster_manager)
 
