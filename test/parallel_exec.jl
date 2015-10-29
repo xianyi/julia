@@ -579,3 +579,13 @@ end
 
 # issue #13122
 @test remotecall_fetch(identity, workers()[1], C_NULL) === C_NULL
+
+# Deserialization error recovery test
+let
+    bad_thunk = ()->NonexistantModule.f()
+    @test_throws RemoteException remotecall_fetch(bad_thunk, 2)
+    # Test that the stream is still usable
+    @test remotecall_fetch(()->:test,2) == :test
+    ref = remotecall(bad_thunk, 2)
+    @test_throws RemoteException take!(ref)
+end

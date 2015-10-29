@@ -19,23 +19,34 @@
 # Messages
 abstract AbstractMsg
 
+# Header stored separately from body to be able to send back errors if
+# a with deserialization error when reading the message body.
+type MsgHeader
+    response_oid::Tuple{Int, Int}
+    notify_oid::Tuple{Int, Int}
+end
+
+# Special oid (0,0) uses to indicate a null ID. Used instead of  Nullable to decrease
+# wire size of header.
+null_id(id) =  id == (0, 0)
+
+
+MsgHeader(;response_oid::Tuple{Int,Int}=(0,0), notify_oid::Tuple{Int,Int}=(0,0)) =
+    MsgHeader(response_oid, notify_oid)
+
 type CallMsg{Mode} <: AbstractMsg
     f::Function
     args::Tuple
-    response_oid::Tuple
 end
 type CallWaitMsg <: AbstractMsg
     f::Function
     args::Tuple
-    response_oid::Tuple
-    notify_oid::Tuple
 end
 type RemoteDoMsg <: AbstractMsg
     f::Function
     args::Tuple
 end
 type ResultMsg <: AbstractMsg
-    response_oid::Tuple
     value::Any
 end
 
@@ -48,34 +59,32 @@ type JoinPGRPMsg <: AbstractMsg
     self_pid::Int
     other_workers::Array
     self_is_local::Bool
-    notify_oid::Tuple
     topology::Symbol
 end
 type JoinCompleteMsg <: AbstractMsg
-    notify_oid::Tuple
     cpu_cores::Int
     ospid::Int
 end
 
 
-function send_msg_unknown(s::IO, msg)
+function send_msg_unknown(s::IO, header, msg)
     error("attempt to send to unknown socket")
 end
 
-function send_msg(s::IO, msg)
+function send_msg(s::IO, header, msg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg(worker_from_id(id), msg)
+        return send_msg(worker_from_id(id), header, msg)
     end
-    send_msg_unknown(s, msg)
+    send_msg_unknown(s, header, msg)
 end
 
-function send_msg_now(s::IO, msg::AbstractMsg)
+function send_msg_now(s::IO, header, msg::AbstractMsg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg_now(worker_from_id(id), msg)
+        return send_msg_now(worker_from_id(id), header, msg)
     end
-    send_msg_unknown(s, msg)
+    send_msg_unknown(s, header, msg)
 end
 
 abstract ClusterManager
@@ -170,12 +179,12 @@ function set_worker_state(w, state)
     notify(w.c_state; all=true)
 end
 
-function send_msg_now(w::Worker, msg)
-    send_msg_(w, msg, true)
+function send_msg_now(w::Worker, header, msg)
+    send_msg_(w, header, msg, true)
 end
 
-function send_msg(w::Worker, msg)
-    send_msg_(w, msg, false)
+function send_msg(w::Worker, header, msg)
+    send_msg_(w, header, msg, false)
 end
 
 function flush_gc_msgs(w::Worker)
@@ -219,14 +228,15 @@ end
 # contents is trivial.
 const BOUNDARY_SIZE = 10
 
-function send_msg_(w::Worker, msg, now::Bool)
+function send_msg_(w::Worker, header, msg, now::Bool)
     check_worker_state(w)
     io = w.w_stream
     lock(io.lock)
     try
         boundary = rand(UInt8, BOUNDARY_SIZE)
-        println("worker $(myid()) trying to send msg $msg")
+        # println("worker $(myid()) trying to send msg $msg with header $header")
         write(io, boundary)
+        serialize(io, header)
         serialize(io, msg)
         write(io, boundary)
         if !now && w.gcflag
@@ -281,9 +291,8 @@ type ProcessGroup
     workers::Array{Any,1}
     refs::Dict                  # global references
     topology::Symbol
-    error_log::Array{Any,1}
 
-    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict(), :all_to_all, Any[])
+    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict(), :all_to_all)
 end
 const PGRP = ProcessGroup([])
 
@@ -653,17 +662,6 @@ function showerror(io::IO, re::RemoteException)
     showerror(io, re.captured)
 end
 
-# Sent to the client in the event that that the client's message could not
-# be deserialized.
-type DeserializeErrorMsg <: AbstractMsg
-    remote_error :: RemoteException
-end
-
-function show(io::IO, err::DeserializeErrorMsg)
-    print(io, "Remote worker received could not deserialize a message:\n")
-    show(io, err.remote_error)
-end
-
 function run_work_thunk(thunk, print_error)
     local result
     try
@@ -732,7 +730,7 @@ end
 function remotecall(f, w::Worker, args...)
     rr = RemoteRef(w)
     #println("$(myid()) asking for $rr")
-    send_msg(w, CallMsg{:call}(f, args, rr2id(rr)))
+    send_msg(w, MsgHeader(response_oid=rr2id(rr)), CallMsg{:call}(f, args))
     rr
 end
 
@@ -750,7 +748,7 @@ function remotecall_fetch(f, w::Worker, args...)
     oid = next_rrid_tuple()
     rv = lookup_ref(oid)
     rv.waitingfor = w.id
-    send_msg(w, CallMsg{:call_fetch}(f, args, oid))
+    send_msg(w, MsgHeader(response_oid=oid), CallMsg{:call_fetch}(f, args))
     v = take!(rv)
     delete!(PGRP.refs, oid)
     isa(v, RemoteException) ? throw(v) : v
@@ -767,7 +765,7 @@ function remotecall_wait(f, w::Worker, args...)
     rv = lookup_ref(prid)
     rv.waitingfor = w.id
     rr = RemoteRef(w)
-    send_msg(w, CallWaitMsg(f, args, rr2id(rr), prid))
+    send_msg(w, MsgHeader(response_oid=rr2id(rr), notify_oid=prid), CallWaitMsg(f, args))
     v = fetch(rv.c)
     delete!(PGRP.refs, prid)
     isa(v, RemoteException) && throw(v)
@@ -787,7 +785,7 @@ function remote_do(f, w::LocalProcess, args...)
 end
 
 function remote_do(f, w::Worker, args...)
-    send_msg(w, RemoteDoMsg(f, args))
+    send_msg(w, MsgHeader(), RemoteDoMsg(f, args))
     nothing
 end
 
@@ -805,7 +803,7 @@ end
 
 function wait_ref(rid, callee, args...)
     v = fetch_ref(rid, args...)
-    if isa(v, Remot1eException)
+    if isa(v, RemoteException)
         if myid() == callee
             throw(v)
         else
@@ -839,13 +837,13 @@ close(rr::RemoteRef) = call_on_owner(close_ref, rr)
 
 function deliver_result(sock::IO, msg, oid, value)
     #print("$(myid()) sending result $oid\n")
-    if is(msg,:call_fetch) || isa(value, RemoteException)
+    if isa(msg, CallMsg{:call_fetch}) || isa(value, RemoteException)
         val = value
     else
         val = :OK
     end
     try
-        send_msg_now(sock, ResultMsg(oid, val))
+        send_msg_now(sock, MsgHeader(response_oid=oid), ResultMsg(val))
     catch e
         # terminate connection in case of serialization error
         # otherwise the reading end would hang
@@ -878,18 +876,17 @@ end
 
 process_messages(r_stream::IO, w_stream::IO) = @schedule message_handler_loop(r_stream, w_stream)
 
+
 function message_handler_loop(r_stream::IO, w_stream::IO)
     global PGRP
     global cluster_manager
     try
         while true
             local msg
-            local boundary
+            boundary = readbytes(r_stream, BOUNDARY_SIZE)
+            header = deserialize(r_stream)
             try
-                boundary = readbytes(r_stream, BOUNDARY_SIZE)
                 msg = deserialize(r_stream)
-                boundary_end = readbytes(r_stream, BOUNDARY_SIZE)
-                # @assert boundary==boundary_end
             catch e
                 # Deserialization error; discard bytes in stream until boundary found
                 boundary_idx = 1
@@ -906,15 +903,21 @@ function message_handler_loop(r_stream::IO, w_stream::IO)
                         boundary_idx = 1
                     end
                 end
-                werr = r_stream |> worker_id_from_socket |> worker_from_id
-                send_msg(werr,
-                    CapturedException(e, catch_backtrace()) |>
-                    RemoteException |>
-                    DeserializeErrorMsg)
+                remote_err = RemoteException(myid(),
+                    CapturedException(e, catch_backtrace()))
+                if !null_id(header.response_oid)
+                    ref = lookup_ref(header.response_oid)
+                    put!(ref, remote_err)
+                end
+                if !null_id(header.notify_oid)
+                    deliver_result(w_stream, msg, header.notify_oid, remote_err)
+                end
                 continue
             end
+            boundary_end = readbytes(r_stream, BOUNDARY_SIZE)
+            # @assert boundary==boundary_end
             # println("got msg: ", msg)
-            handle_msg(msg, r_stream, w_stream)
+            handle_msg(msg, header, r_stream, w_stream)
         end
     catch e
         iderr = worker_id_from_socket(r_stream)
@@ -954,32 +957,28 @@ function message_handler_loop(r_stream::IO, w_stream::IO)
     end
 end
 
-handle_msg(msg::CallMsg{:call}, r_stream, w_stream) = schedule_call(msg.response_oid, ()->msg.f(msg.args...))
-function handle_msg(msg::CallMsg{:call_fetch}, r_stream, w_stream)
+handle_msg(msg::CallMsg{:call}, header, r_stream, w_stream) = schedule_call(header.response_oid, ()->msg.f(msg.args...))
+function handle_msg(msg::CallMsg{:call_fetch}, header, r_stream, w_stream)
     @schedule begin
         v = run_work_thunk(()->msg.f(msg.args...), false)
-        deliver_result(w_stream, :call_fetch, msg.response_oid, v)
+        deliver_result(w_stream, msg, header.response_oid, v)
     end
 end
 
-function handle_msg(msg::CallWaitMsg, r_stream, w_stream)
+function handle_msg(msg::CallWaitMsg, header, r_stream, w_stream)
     @schedule begin
-        rv = schedule_call(msg.response_oid, ()->msg.f(msg.args...))
-        deliver_result(w_stream, :call_wait, msg.notify_oid, fetch(rv.c))
+        rv = schedule_call(header.response_oid, ()->msg.f(msg.args...))
+        deliver_result(w_stream, msg, header.notify_oid, fetch(rv.c))
     end
 end
 
-handle_msg(msg::RemoteDoMsg, r_stream, w_stream) = @schedule run_work_thunk(()->msg.f(msg.args...), true)
+handle_msg(msg::RemoteDoMsg, header, r_stream, w_stream) = @schedule run_work_thunk(()->msg.f(msg.args...), true)
 
-handle_msg(msg::ResultMsg, r_stream, w_stream) = put!(lookup_ref(msg.response_oid), msg.value)
+handle_msg(msg::ResultMsg, header, r_stream, w_stream) = put!(lookup_ref(header.response_oid), msg.value)
 
-function handle_msg(msg::DeserializeErrorMsg, r_stream, w_stream)
-    push!(PGRP.error_log, msg)
-end
+handle_msg(msg::IdentifySocketMsg, header, r_stream, w_stream) = Worker(msg.from_pid, r_stream, w_stream, cluster_manager)
 
-handle_msg(msg::IdentifySocketMsg, r_stream, w_stream) = Worker(msg.from_pid, r_stream, w_stream, cluster_manager)
-
-function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream)
+function handle_msg(msg::JoinPGRPMsg, header, r_stream, w_stream)
     LPROC.id = msg.self_pid
     controller = Worker(1, r_stream, w_stream, cluster_manager)
     register_worker(LPROC)
@@ -999,7 +998,7 @@ function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream)
 
     for wt in wait_tasks; wait(wt); end
 
-    send_msg_now(controller, JoinCompleteMsg(msg.notify_oid, Sys.CPU_CORES, getpid()))
+    send_msg_now(controller, MsgHeader(notify_oid=header.notify_oid), JoinCompleteMsg(Sys.CPU_CORES, getpid()))
 end
 
 function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConfig)
@@ -1007,14 +1006,14 @@ function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConf
         (r_s, w_s) = connect(manager, rpid, wconfig)
         w = Worker(rpid, r_s, w_s, manager, wconfig)
         process_messages(w.r_stream, w.w_stream)
-        send_msg_now(w, IdentifySocketMsg(myid()))
+        send_msg_now(w, MsgHeader(), IdentifySocketMsg(myid()))
     catch e
         println(STDERR, "Error [$e] on $(myid()) while connecting to peer $rpid. Exiting.")
         exit(1)
     end
 end
 
-function handle_msg(msg::JoinCompleteMsg, r_stream, w_stream)
+function handle_msg(msg::JoinCompleteMsg, header, r_stream, w_stream)
     w = map_sock_wrkr[r_stream]
 
     environ = get(w.config.environ, Dict())
@@ -1022,7 +1021,7 @@ function handle_msg(msg::JoinCompleteMsg, r_stream, w_stream)
     w.config.environ = environ
     w.config.ospid = msg.ospid
 
-    ntfy_channel = lookup_ref(msg.notify_oid)
+    ntfy_channel = lookup_ref(header.notify_oid)
     put!(ntfy_channel, w.id)
 end
 
@@ -1338,7 +1337,8 @@ function create_worker(manager, wconfig)
     end
 
     all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id, isa(x.manager, LocalManager)) : ((), x.id, true), join_list)
-    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, isa(w.manager, LocalManager), ntfy_oid, PGRP.topology))
+    send_msg_now(w, MsgHeader(notify_oid=ntfy_oid),
+        JoinPGRPMsg(w.id, all_locs, isa(w.manager, LocalManager), PGRP.topology))
 
     @schedule manage(w.manager, w.id, w.config, :register)
     wait(rr_ntfy_join)
