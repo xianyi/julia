@@ -19,17 +19,16 @@
 # Messages
 abstract AbstractMsg
 
-# Header stored separately from body to be able to send back errors if
-# a with deserialization error when reading the message body.
+# Message header stored separately from body to be able to send back errors if
+# a deserialization error occurs when reading the message body.
 type MsgHeader
     response_oid::Tuple{Int, Int}
     notify_oid::Tuple{Int, Int}
 end
 
-# Special oid (0,0) uses to indicate a null ID. Used instead of  Nullable to decrease
-# wire size of header.
+# Special oid (0,0) uses to indicate a null ID.
+# Used instead of Nullable to decrease wire size of header.
 null_id(id) =  id == (0, 0)
-
 
 MsgHeader(;response_oid::Tuple{Int,Int}=(0,0), notify_oid::Tuple{Int,Int}=(0,0)) =
     MsgHeader(response_oid, notify_oid)
