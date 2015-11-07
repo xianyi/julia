@@ -19,6 +19,14 @@
 # Messages
 abstract AbstractMsg
 
+## Wire format description
+#
+# Each message has three parts, which are written in order to the worker's
+# incoming message stream.
+#  1) A header of type MsgHeader is serialized to the stream (via `serialize`).
+#  2) A message of type AbstractMsg is then serialized.
+#  3) Finally, a fixed bounday of 10 bytes is written.
+
 # Message header stored separately from body to be able to send back errors if
 # a deserialization error occurs when reading the message body.
 type MsgHeader
@@ -222,22 +230,19 @@ function check_worker_state(w::Worker)
     end
 end
 
-# Number of bytes to use to indicate a boundary between messages on the wire.
-# A size of 10 bytes indicates ~ ~1e24 possible boundaries, so chance of collision with message
-# contents is trivial.
-const BOUNDARY_SIZE = 10
+# Boundary inserted between messages on the wire, used for recovering
+# from deserialization errors. Picked arbitrarily.
+# A size of 10 bytes indicates ~ ~1e24 possible boundaries, so chance of collision with message contents is trivial.
+const MSG_BOUNDARY = UInt8[0x79, 0x8e, 0x8e, 0xf5, 0x6e, 0x9b, 0x2e, 0x97, 0xd5, 0x7d]
 
 function send_msg_(w::Worker, header, msg, now::Bool)
     check_worker_state(w)
     io = w.w_stream
     lock(io.lock)
     try
-        boundary = rand(UInt8, BOUNDARY_SIZE)
-        # println("worker $(myid()) trying to send msg $msg with header $header")
-        write(io, boundary)
         serialize(io, header)
         serialize(io, msg)
-        write(io, boundary)
+        write(io, MSG_BOUNDARY)
         if !now && w.gcflag
             flush_gc_msgs(w)
         else
@@ -879,10 +884,10 @@ process_messages(r_stream::IO, w_stream::IO) = @schedule message_handler_loop(r_
 function message_handler_loop(r_stream::IO, w_stream::IO)
     global PGRP
     global cluster_manager
+    boundary = similar(MSG_BOUNDARY)
     try
         while true
             local msg
-            boundary = readbytes(r_stream, BOUNDARY_SIZE)
             header = deserialize(r_stream)
             try
                 msg = deserialize(r_stream)
@@ -893,9 +898,9 @@ function message_handler_loop(r_stream::IO, w_stream::IO)
                     # This may throw an EOF error if the terminal boundary was not written
                     # correctly, triggering the higher-scoped catch block below
                     byte = read(r_stream, UInt8)
-                    if byte == boundary[boundary_idx]
+                    if byte == MSG_BOUNDARY[boundary_idx]
                         boundary_idx += 1
-                        if boundary_idx > length(boundary)
+                        if boundary_idx > length(MSG_BOUNDARY)
                             break
                         end
                     else
@@ -913,8 +918,8 @@ function message_handler_loop(r_stream::IO, w_stream::IO)
                 end
                 continue
             end
-            boundary_end = readbytes(r_stream, BOUNDARY_SIZE)
-            # @assert boundary==boundary_end
+            readbytes!(r_stream, boundary, length(MSG_BOUNDARY))
+            # @assert boundary==BOUNDARY_MSG
             # println("got msg: ", msg)
             handle_msg(msg, header, r_stream, w_stream)
         end
