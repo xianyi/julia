@@ -1371,6 +1371,7 @@ static void sweep_pool_region(gcval_t ***pfl, int region_i, int sweep_mask)
 // Returns pointer to terminal pointer of list rooted at *pfl.
 static gcval_t** sweep_page(pool_t* p, gcpage_t* pg, gcval_t **pfl, int sweep_mask, int osize)
 {
+    assert(sweep_mask == GC_MARKED || sweep_mask == GC_MARKED_NOESC);
 #ifdef FREE_PAGES_EAGER
     int freedall;
 #else
@@ -1387,11 +1388,12 @@ static gcval_t** sweep_page(pool_t* p, gcpage_t* pg, gcval_t **pfl, int sweep_ma
     char *lim = (char*)v + GC_PAGE_SZ - GC_PAGE_OFFSET - osize;
     freedall = 1;
     old_nfree += pg->nfree;
+    uint32_t pg_gc_bits = GC_CLEAN;
 
     if (pg->gc_bits == GC_MARKED) {
         // this page only contains GC_MARKED and free cells
-        // if we are doing a quick sweep and nothing has been allocated inside since last sweep
-        // we can skip it
+        // if we are doing a quick sweep and nothing has been allocated inside
+        // since last sweep we can skip it
         if (sweep_mask == GC_MARKED_NOESC && !pg->allocd) {
             // the position of the freelist begin/end in this page is stored in its metadata
             if (pg->fl_begin_offset != (uint16_t)-1) {
@@ -1400,10 +1402,11 @@ static gcval_t** sweep_page(pool_t* p, gcpage_t* pg, gcval_t **pfl, int sweep_ma
             }
             pg_skpd++;
             freedall = 0;
+            pg_gc_bits = GC_MARKED;
             goto free_page;
         }
     }
-    else if (pg->gc_bits == GC_CLEAN) {
+    else if (!(pg->gc_bits & GC_MARKED)) {
         goto free_page;
     }
 
@@ -1423,12 +1426,13 @@ static gcval_t** sweep_page(pool_t* p, gcpage_t* pg, gcval_t **pfl, int sweep_ma
             else { // marked young or old
                 if (*ages & msk) { // old enough
                     if (sweep_mask == GC_MARKED || bits == GC_MARKED_NOESC) {
-                        gc_bits(v) = GC_QUEUED; // promote
+                        bits = gc_bits(v) = GC_QUEUED; // promote
                     }
                 }
                 else if ((sweep_mask & bits) == sweep_mask) {
-                    gc_bits(v) = GC_CLEAN; // unmark
+                    bits = gc_bits(v) = GC_CLEAN; // unmark
                 }
+                pg_gc_bits |= bits;
                 *ages |= msk;
                 freedall = 0;
             }
@@ -1482,9 +1486,8 @@ static gcval_t** sweep_page(pool_t* p, gcpage_t* pg, gcval_t **pfl, int sweep_ma
     }
     else {
         if (sweep_mask == GC_MARKED)
-            pg->gc_bits = GC_CLEAN;
-        if (sweep_mask == GC_MARKED_NOESC)
-            pg->gc_bits = GC_MARKED;
+            pg_gc_bits = GC_CLEAN;
+        pg->gc_bits = pg_gc_bits;
         nfree += pg->nfree;
     }
 
