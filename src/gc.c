@@ -272,8 +272,6 @@ static int check_timeout = 0;
 #define _gc_setmark(o, mark_mode) (((gcval_t*)(o))->gc_bits = mark_mode)
 
 static gcpage_t *page_metadata(void *data);
-static void pre_mark(void);
-static void post_mark(arraylist_t *list, int dryrun);
 static region_t *find_region(void *ptr, int maybe);
 
 #define PAGE_INDEX(region, data)              \
@@ -1489,6 +1487,24 @@ void gc_queue_binding(jl_binding_t *bnd)
     END
 }
 
+static int gc_mark_reset_age = 0;
+
+static void gc_reset_age(jl_taggedvalue_t *o)
+{
+    if (find_region(o, 1)) {
+        // Pool
+        gcpage_t *pg = page_metadata(o);
+        pg->allocd = 1;
+        char *page_begin = GC_PAGE_DATA(o) + GC_PAGE_OFFSET;
+        int obj_id = (((char*)o) - page_begin) / pg->osize;
+        uint8_t *ages = pg->ages + obj_id / 8;
+        *ages &= ~(1 << (obj_id % 8));
+    } else {
+        // Big
+        bigval_header(o)->age = 0;
+    }
+}
+
 static int push_root(jl_value_t *v, int d, int);
 #ifdef JL_DEBUG_BUILD
 static void *volatile gc_findval; // for usage from gdb, for finding the gc-root for a value
@@ -1504,6 +1520,14 @@ static inline int gc_push_root(void *v, int d) // v isa jl_value_t*
     verify_val(v);
     int bits = gc_bits(o);
     if (!gc_marked(o)) {
+        if (__unlikely(gc_mark_reset_age)) {
+            // For any objects that are only reachable from objects in the
+            // to_finalize list, mark them as young so that they can be
+            // collected quickly. This doesn't break the invariance since
+            // nothing else (in particular, no old object) is refering them.
+            gc_reset_age(o);
+            bits = gc_bits(o) = GC_CLEAN;
+        }
         return push_root((jl_value_t*)v, d, bits);
     }
     return bits;
@@ -1883,11 +1907,6 @@ static void pre_mark(void)
         }
     END
 
-    // objects currently being finalized
-    for(i=0; i < to_finalize.len; i++) {
-        gc_push_root(to_finalize.items[i], 0);
-    }
-
     jl_mark_box_caches();
     gc_push_root(jl_unprotect_stack_func, 0);
     gc_push_root(jl_bottom_func, 0);
@@ -1905,17 +1924,17 @@ static int n_finalized;
 
 // find unmarked objects that need to be finalized from the finalizer list "list".
 // this must happen last in the mark phase.
-// if dryrun == 1, it does not schedule any actual finalization and only marks finalizers
-static void post_mark(arraylist_t *list, int dryrun)
+static void post_mark(arraylist_t *list)
 {
     n_finalized = 0;
-    for(size_t i=0; i < list->len; i+=2) {
+    for (size_t i = 0;i < list->len;i += 2) {
         jl_value_t *v = (jl_value_t*)list->items[i];
         jl_value_t *fin = (jl_value_t*)list->items[i+1];
         int isfreed = !gc_marked(jl_astaggedvalue(v));
-        gc_push_root(fin, 0);
-        int isold = list == &finalizer_list && gc_bits(jl_astaggedvalue(v)) == GC_MARKED && gc_bits(jl_astaggedvalue(fin)) == GC_MARKED;
-        if (!dryrun && (isfreed || isold)) {
+        int isold = (list == &finalizer_list &&
+                     gc_bits(jl_astaggedvalue(v)) == GC_MARKED &&
+                     gc_bits(jl_astaggedvalue(fin)) == GC_MARKED);
+        if (isfreed || isold) {
             // remove from this list
             if (i < list->len - 2) {
                 list->items[i] = list->items[list->len-2];
@@ -1928,17 +1947,24 @@ static void post_mark(arraylist_t *list, int dryrun)
             // schedule finalizer or execute right away if it is not julia code
             if (gc_typeof(fin) == (jl_value_t*)jl_voidpointer_type) {
                 void *p = jl_unbox_voidpointer(fin);
-                if (!dryrun && p)
+                if (p)
                     ((void (*)(void*))p)(jl_data_ptr(v));
                 continue;
             }
-            gc_push_root(v, 0);
-            if (!dryrun) schedule_finalization(v, fin);
+            // Don't mark them yet in order to schedule other objects referenced
+            // by this object to be finalized as well. We'll mark them
+            // in the `to_finalize` list later.
+            schedule_finalization(v, fin);
             n_finalized++;
         }
-        if (!dryrun && isold) {
+        else if (isold) {
+            // They are all already marked, don't need to mark again.
             arraylist_push(&finalizer_list_marked, v);
             arraylist_push(&finalizer_list_marked, fin);
+        }
+        else {
+            // The object is still alive but we need to mark the finalizer.
+            gc_push_root(fin, 0);
         }
     }
     visit_mark_stack(GC_MARKED_NOESC);
@@ -2130,10 +2156,16 @@ void jl_gc_collect(int full)
             post_time = jl_hrtime();
 #endif
             // 4. check for objects to finalize
-            post_mark(&finalizer_list, 0);
+            gc_mark_reset_age = 1;
+            post_mark(&finalizer_list);
             if (prev_sweep_mask == GC_MARKED) {
-                post_mark(&finalizer_list_marked, 0);
+                post_mark(&finalizer_list_marked);
             }
+            // objects currently being finalized
+            for (size_t i = 0;i < to_finalize.len;i++) {
+                gc_push_root(to_finalize.items[i], 0);
+            }
+            gc_mark_reset_age = 0;
 #if defined(GC_TIME) || defined(GC_FINAL_STATS)
             post_time = jl_hrtime() - post_time;
 #endif
