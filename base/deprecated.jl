@@ -893,3 +893,6 @@ function isexecutable(st::Filesystem.StatStruct)
     return (st.mode & 0o111) > 0
 end
 export isreadable, iswritable, isexecutable
+
+# 12953
+@deprecate repeat(A::AbstractArray; outer = ones(Int, ndims(A)), inner = ones(Int, ndims(A))) repeat(A, outer, inner)

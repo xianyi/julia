@@ -842,11 +842,34 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Construct a matrix by repeating the given matrix ``n`` times in dimension 1 and ``m`` times in dimension 2.
 
-.. function:: repeat(A, inner = Int[], outer = Int[])
+.. function:: repeat(A::AbstractArray, outer[, inner])
 
    .. Docstring generated from Julia source
 
-   Construct an array by repeating the entries of ``A``\ . The i-th element of ``inner`` specifies the number of times that the individual entries of the i-th dimension of ``A`` should be repeated. The i-th element of ``outer`` specifies the number of times that a slice along the i-th dimension of ``A`` should be repeated.
+   Construct an array by repeating the entries of ``a``\ . The i-th element of ``outer`` specifies the number of times that a slice along the i-th dimension of ``a`` should be repeated. The i-th element of ``inner`` specifies the number of times that the individual entries of the i-th dimension of ``a`` should be repeated. Pass an empty tuple as ``outer`` (or any other empty collection, which is equivalent to a tuple of ones of length ``ndims(a)``\ ) to use only inner repetitions.
+
+   .. doctest::
+
+       julia> repeat(1:2, 2)
+       4-element Array{Int64,1}:
+        1
+        2
+        1
+        2
+
+       julia> repeat(1:2, (), 2)
+       4-element Array{Int64,1}:
+        1
+        1
+        2
+        2
+
+       julia> repeat([1 2; 3 4], (1, 2), (2, 1))
+       4x4 Array{Int64,2}:
+        1  2  1  2
+        1  2  1  2
+        3  4  3  4
+        3  4  3  4
 
 .. function:: kron(A, B)
 
