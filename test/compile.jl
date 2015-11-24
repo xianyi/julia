@@ -2,6 +2,12 @@
 
 using Base.Test
 
+function redirected_stderr()
+    rd, wr = redirect_stderr()
+    @async readall(rd) # make sure the kernel isn't being forced to buffer the output
+    nothing
+end
+
 olderr = STDERR
 dir = mktempdir()
 insert!(LOAD_PATH, 1, dir)
@@ -34,7 +40,7 @@ try
     # use _require_from_serialized to ensure that the test fails if
     # the module doesn't load from the image:
     try
-        rd, wr = redirect_stderr()
+        redirected_stderr()
         @test nothing !== Base._require_from_serialized(myid(), Foo_module, true)
     finally
         redirect_stderr(olderr)
@@ -63,7 +69,7 @@ try
               """)
     end
     try
-        rd, wr = redirect_stderr()
+        redirected_stderr()
         Base.compilecache("Baz") # from __precompile__(false)
         error("__precompile__ disabled test failed")
     catch exc
@@ -93,7 +99,7 @@ try
     end
 
     try
-        rd, wr = redirect_stderr()
+        redirected_stderr()
         Base.require(:FooBar)
         error("\"LoadError: break me\" test failed")
     catch exc
