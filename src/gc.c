@@ -102,6 +102,11 @@ typedef struct _bigval_t {
         size_t sz;
         uptrint_t age : 2;
     };
+#ifdef _P64
+    void *_padding[8 - 4];
+#else
+    void *_padding[16 - 4];
+#endif
     //struct buff_t <>;
     union {
         uptrint_t header;
@@ -113,7 +118,7 @@ typedef struct _bigval_t {
 #if !defined(_COMPILER_MICROSOFT_)
     int _dummy[0];
 #endif
-    // must be 16-aligned here, in 32 & 64b
+    // must be 64-aligned here, in 32 & 64b
     char data[];
 } bigval_t;
 
@@ -318,15 +323,9 @@ static int jl_gc_finalizers_inhibited; // don't run finalizers during codegen #1
 
 // malloc wrappers, aligned allocation
 
-#if defined(_P64) || defined(__APPLE__)
-#define malloc_a16(sz) malloc(sz)
-#define realloc_a16(p, sz, oldsz) realloc((p), (sz))
-#define free_a16(p) free(p)
-#else
-#define malloc_a16(sz) jl_malloc_aligned(sz, 16)
-#define realloc_a16(p, sz, oldsz) jl_realloc_aligned(p, sz, oldsz, 16)
-#define free_a16(p) jl_free_aligned(p)
-#endif
+#define malloc_a64(sz) jl_malloc_aligned(sz, 64)
+#define realloc_a64(p, sz, oldsz) jl_realloc_aligned(p, sz, oldsz, 64)
+#define free_a64(p) jl_free_aligned(p)
 
 static void schedule_finalization(void *o, void *f)
 {
@@ -906,7 +905,7 @@ static NOINLINE void *alloc_big(size_t sz)
     size_t allocsz = LLT_ALIGN(sz + offs, 16);
     if (allocsz < sz)  // overflow in adding offs, size was "negative"
         jl_throw(jl_memory_exception);
-    bigval_t *v = (bigval_t*)malloc_a16(allocsz);
+    bigval_t *v = (bigval_t*)malloc_a64(allocsz);
     if (v == NULL)
         jl_throw(jl_memory_exception);
     JL_ATOMIC_FETCH_AND_ADD(allocd_bytes,allocsz);
@@ -966,7 +965,7 @@ static bigval_t** sweep_big_list(int sweep_mask, bigval_t** pv)
 #ifdef MEMDEBUG
             memset(v, 0xbb, v->sz&~3);
 #endif
-            free_a16(v);
+            free_a64(v);
             big_freed++;
         }
         big_total++;
@@ -1033,7 +1032,7 @@ static void jl_gc_free_array(jl_array_t *a)
     if (a->how == 2) {
         char *d = (char*)a->data - a->offset*a->elsize;
         if (a->isaligned)
-            free_a16(d);
+            free_a64(d);
         else
             free(d);
         freed_bytes += array_nbytes(a);
@@ -2352,7 +2351,7 @@ void *reallocb(void *b, size_t sz)
         if (allocsz < sz)  // overflow in adding offs, size was "negative"
             jl_throw(jl_memory_exception);
         bigval_t *bv = bigval_header(buff);
-        bv = (bigval_t*)realloc_a16(bv, allocsz, bv->sz&~3);
+        bv = (bigval_t*)realloc_a64(bv, allocsz, bv->sz&~3);
         if (bv == NULL)
             jl_throw(jl_memory_exception);
         return &bv->data[0];
@@ -2717,7 +2716,7 @@ JL_DLLEXPORT void *jl_gc_managed_malloc(size_t sz)
         jl_throw(jl_memory_exception);
     allocd_bytes += allocsz;
     gc_num.malloc++;
-    void *b = malloc_a16(allocsz);
+    void *b = malloc_a64(allocsz);
     if (b == NULL)
         jl_throw(jl_memory_exception);
     return b;
@@ -2744,7 +2743,7 @@ JL_DLLEXPORT void *jl_gc_managed_realloc(void *d, size_t sz, size_t oldsz,
 
     void *b;
     if (isaligned)
-        b = realloc_a16(d, allocsz, oldsz);
+        b = realloc_a64(d, allocsz, oldsz);
     else
         b = realloc(d, allocsz);
     if (b == NULL)
