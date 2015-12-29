@@ -483,6 +483,10 @@ function uv_readcb(handle::Ptr{Void}, nread::Cssize_t, buf::Ptr{Void})
                 close(stream)
             end
         else
+            @windows_only begin
+                println(STDERR, "error: $nread")
+                Base.show_backtrace(STDERR, Base.backtrace())
+            end
             # This is a fatal connection error. Shutdown requests as per the usual
             # close function won't work and libuv will fail with an assertion failure
             ccall(:jl_forceclose_uv, Void, (Ptr{Void},), stream)
