@@ -3189,7 +3189,7 @@ let
         @test false
     catch err
         @test isa(err, TypeError)
-        @test err.func == :NTuple
+        @test err.func == :apply_type
         @test err.expected == Int
         @test err.got == Int
     end
@@ -3199,7 +3199,7 @@ let
         @test false
     catch err
         @test isa(err, TypeError)
-        @test err.func == :NTuple
+        @test err.func == :apply_type
         @test err.expected == Int
         @test err.got == 0x1
     end
