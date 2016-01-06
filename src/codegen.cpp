@@ -867,10 +867,10 @@ static Function *to_function(jl_lambda_info_t *li, jl_cyclectx_t *cyclectx)
         jl_rethrow_with_add("error compiling %s", jl_symbol_name(li->name));
     }
     assert(f != NULL);
-#if defined(USE_MCJIT) || defined(ORCJIT)
+#if !defined(USE_MCJIT) && !defined(USE_ORCJIT)
     if (imaging_mode)
-#endif
         FPM->run(*f);
+#endif
 
     if (old != NULL) {
         builder.SetInsertPoint(old);
@@ -4109,10 +4109,10 @@ static Function *gen_cfun_wrapper(jl_lambda_info_t *lam, jl_value_t *jlrettype, 
         builder.CreateRet(r);
     finalize_gc_frame(&ctx);
 
-#if defined(USE_MCJIT) || defined(ORCJIT)
+#if !defined(USE_MCJIT) && !defined(USE_ORCJIT)
     if (imaging_mode)
-#endif
         FPM->run(*cw);
+#endif
 
     cw->removeFromParent();
     active_module->getFunctionList().push_back(cw);

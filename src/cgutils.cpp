@@ -640,8 +640,9 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
 #if defined(USE_MCJIT) || defined(USE_ORCJIT)
     realize_pending_globals();
 #endif
-    //shadow_module->dump();
+#ifdef JL_DEBUG_BUILD
     verifyModule(*shadow_module);
+#endif
 
 #ifdef LLVM36
     std::error_code err;
@@ -717,10 +718,13 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
         PM.add(new DataLayout(*jl_ExecutionEngine->getDataLayout()));
 #endif
 
-
+        addOptimizationPasses(&PM);
         if (TM->addPassesToEmitFile(PM, FOS, TargetMachine::CGFT_ObjectFile, false)) {
             jl_error("Could not generate obj file for this target");
         }
+    }
+    else {
+        addOptimizationPasses(&PM);
     }
 
     // now copy the module, since PM.run may modify it
