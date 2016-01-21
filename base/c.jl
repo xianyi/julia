@@ -80,7 +80,6 @@ pointer_to_string(p::Cstring, own::Bool=false) = pointer_to_string(convert(Ptr{U
 
 # convert strings to String etc. to pass as pointers
 cconvert(::Type{Cstring}, s::AbstractString) = bytestring(s)
-cconvert(::Type{Cwstring}, s::AbstractString) = wstring(s)
 
 containsnul(p::Ptr, len) = C_NULL != ccall(:memchr, Ptr{Cchar}, (Ptr{Cchar}, Cint, Csize_t), p, 0, len)
 function unsafe_convert(::Type{Cstring}, s::String)
@@ -93,8 +92,6 @@ end
 
 # symbols are guaranteed not to contain embedded NUL
 convert(::Type{Cstring}, s::Symbol) = Cstring(unsafe_convert(Ptr{Cchar}, s))
-
-# in string.jl: unsafe_convert(::Type{Cwstring}, s::WString)
 
 # deferring (or un-deferring) ctrl-c handler for external C code that
 # is not interrupt safe (see also issue #2622).  The sigatomic_begin/end
