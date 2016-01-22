@@ -165,6 +165,19 @@ function unsafe_trunc(::Type{Int128}, x::Float32)
     copysign(unsafe_trunc(UInt128,x) % Int128, x)
 end
 
+# convert methods
+@inline function convert{T<:Union{Int32,Int64,UInt32,UInt64},Tf<:Union{Float32,Float64}}(::Type{T}, x::Tf)
+    i = unsafe_trunc(T,x)
+    convert(Tf,i) == x || throw(InexactError())
+    i
+end
+# avoid undefined behaviour on ARM, cf #14549
+@inline function convert{T<:Union{Int8,Int16,UInt8,UInt16},Tf<:Union{Float32,Float64}}(::Type{T}, x::Tf)
+    i = unsafe_trunc(Int32,x) % T
+    convert(Tf,i) == x || throw(InexactError())
+    i
+end
+
 
 # matches convert methods
 # also determines floor, ceil, round
