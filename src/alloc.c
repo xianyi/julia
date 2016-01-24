@@ -251,8 +251,8 @@ JL_DLLEXPORT jl_value_t *jl_new_struct(jl_datatype_t *type, ...)
     return jv;
 }
 
-JL_DLLEXPORT jl_value_t *jl_new_structv(jl_datatype_t *type, jl_value_t **args,
-                                        uint32_t na)
+JL_DLLEXPORT jl_value_t *jl_new_structv(jl_datatype_t *type,
+                                        jl_value_t *const *args, uint32_t na)
 {
     if (type->instance != NULL) return type->instance;
     size_t nf = jl_datatype_nfields(type);

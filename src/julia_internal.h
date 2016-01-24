@@ -97,12 +97,12 @@ uint32_t jl_get_gs_ctr(void);
 void jl_set_gs_ctr(uint32_t ctr);
 
 void JL_NORETURN jl_no_method_error_bare(jl_function_t *f, jl_value_t *args);
-void JL_NORETURN jl_no_method_error(jl_function_t *f, jl_value_t **args,
+void JL_NORETURN jl_no_method_error(jl_function_t *f, jl_value_t *const *args,
                                     size_t na);
 JL_DLLEXPORT void jl_typeassert(jl_value_t *x, jl_value_t *t);
 
 #define JL_CALLABLE(name)                                               \
-    JL_DLLEXPORT jl_value_t *name(jl_value_t *F, jl_value_t **args, uint32_t nargs)
+    JL_DLLEXPORT jl_value_t *name(jl_value_t *F, jl_value_t *const *args, uint32_t nargs)
 
 JL_CALLABLE(jl_trampoline);
 JL_CALLABLE(jl_apply_generic);
@@ -136,7 +136,7 @@ JL_DLLEXPORT void jl_uv_associate_julia_struct(uv_handle_t *handle,
 JL_DLLEXPORT int jl_uv_fs_result(uv_fs_t *f);
 
 
-int jl_tuple_subtype(jl_value_t **child, size_t cl, jl_datatype_t *pdt, int ta);
+int jl_tuple_subtype(jl_value_t *const *child, size_t cl, jl_datatype_t *pdt, int ta);
 
 int jl_subtype_invariant(jl_value_t *a, jl_value_t *b, int ta);
 jl_value_t *jl_type_match(jl_value_t *a, jl_value_t *b);
@@ -154,7 +154,7 @@ int jl_is_type(jl_value_t *v);
 jl_value_t *jl_type_intersection_matching(jl_value_t *a, jl_value_t *b,
                                           jl_svec_t **penv, jl_svec_t *tvars);
 jl_typector_t *jl_new_type_ctor(jl_svec_t *params, jl_value_t *body);
-jl_value_t *jl_apply_type_(jl_value_t *tc, jl_value_t **params, size_t n);
+jl_value_t *jl_apply_type_(jl_value_t *tc, jl_value_t *const *params, size_t n);
 jl_value_t *jl_instantiate_type_with(jl_value_t *t, jl_value_t **env, size_t n);
 jl_datatype_t *jl_new_abstracttype(jl_value_t *name, jl_datatype_t *super,
                                    jl_svec_t *parameters);
@@ -189,9 +189,9 @@ void jl_type_infer(jl_lambda_info_t *li, jl_tupletype_t *argtypes,
 
 jl_function_t *jl_method_lookup_by_type(jl_methtable_t *mt, jl_tupletype_t *types,
                                         int cache, int inexact);
-jl_function_t *jl_method_lookup(jl_methtable_t *mt, jl_value_t **args, size_t nargs, int cache);
+jl_function_t *jl_method_lookup(jl_methtable_t *mt, jl_value_t *const *args, size_t nargs, int cache);
 jl_value_t *jl_gf_invoke(jl_function_t *gf, jl_tupletype_t *types,
-                         jl_value_t **args, size_t nargs);
+                         jl_value_t *const *args, size_t nargs);
 jl_sym_t *jl_decl_var(jl_value_t *ex);
 
 jl_array_t *jl_lam_args(jl_expr_t *l);
@@ -263,7 +263,7 @@ jl_function_t *jl_get_specialization(jl_function_t *f, jl_tupletype_t *types, vo
 jl_function_t *jl_module_get_initializer(jl_module_t *m);
 void jl_generate_fptr(jl_function_t *f);
 void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig);
-jl_tupletype_t *arg_type_tuple(jl_value_t **args, size_t nargs);
+jl_tupletype_t *arg_type_tuple(jl_value_t *const *args, size_t nargs);
 
 jl_value_t* skip_meta(jl_array_t *body);
 int has_meta(jl_array_t *body, jl_sym_t *sym);
@@ -434,7 +434,7 @@ JL_DLLEXPORT jl_value_t *jl_flipsign_int(jl_value_t *a, jl_value_t *b);
 JL_DLLEXPORT jl_value_t *jl_select_value(jl_value_t *isfalse, jl_value_t *a, jl_value_t *b);
 JL_DLLEXPORT jl_value_t *jl_arraylen(jl_value_t *a);
 int jl_array_store_unboxed(jl_value_t *el_type);
-int jl_array_isdefined(jl_value_t **args, int nargs);
+int jl_array_isdefined(jl_value_t *const *args, int nargs);
 
 JL_DEFINE_MUTEX_EXT(codegen)
 

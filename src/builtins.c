@@ -131,7 +131,7 @@ JL_DLLEXPORT void JL_NORETURN jl_bounds_error(jl_value_t *v, jl_value_t *t)
 }
 
 JL_DLLEXPORT void JL_NORETURN jl_bounds_error_v(jl_value_t *v,
-                                                jl_value_t **idxs, size_t nidxs)
+                                                jl_value_t *const *idxs, size_t nidxs)
 {
     jl_value_t *t = NULL;
     // items in idxs are assumed to already be rooted
@@ -409,6 +409,7 @@ JL_CALLABLE(jl_f_apply)
     jl_function_t *f;
     jl_function_t *call_func = (jl_function_t*)args[0];
     assert(jl_is_function(call_func));
+    int wrap_arg1 = 0;
     if (jl_is_function(args[1])) {
         f = (jl_function_t*)args[1];
         --nargs; ++args; /* args[1] becomes args[0] */
@@ -416,10 +417,11 @@ JL_CALLABLE(jl_f_apply)
     else { /* do generic call(args...) instead */
         f = call_func;
         // protect "function" arg from splicing
-        args[1] = (jl_value_t*)jl_svec1(args[1]);
+        wrap_arg1 = 1;
     }
     if (nargs == 2) {
         if (f->fptr == &jl_f_svec) {
+            assert(wrap_arg1 == 0); // call is overwritten to svec
             if (jl_is_svec(args[1]))
                 return args[1];
             if (jl_is_array(args[1])) {
@@ -433,12 +435,14 @@ JL_CALLABLE(jl_f_apply)
                 return (jl_value_t*)t;
             }
         }
+        if (wrap_arg1) // not sure if this can actually happen.
+            return jl_apply(f, &args[1], 1);
         if (jl_is_svec(args[1])) {
             return jl_apply(f, jl_svec_data(args[1]), jl_svec_len(args[1]));
         }
     }
-    size_t n=0, i, j;
-    for(i=1; i < nargs; i++) {
+    size_t n = wrap_arg1, i, j;
+    for (i = 1 + wrap_arg1;i < nargs;i++) {
         if (jl_is_svec(args[i])) {
             n += jl_svec_len(args[i]);
         }
@@ -457,9 +461,13 @@ JL_CALLABLE(jl_f_apply)
                     JL_TYPECHK(apply, tuple, jl_typeof(args[i]));
                 }
             }
-            jl_value_t *argarr = jl_apply(jl_append_any_func, &args[1], nargs-1);
+            jl_value_t *argarr = jl_apply(jl_append_any_func, &args[1 + wrap_arg1], nargs - 1 - wrap_arg1);
             assert(jl_typeis(argarr, jl_array_any_type));
             JL_GC_PUSH1(&argarr);
+            if (wrap_arg1) {
+                jl_array_grow_beg((jl_array_t*)argarr, 1);
+                jl_cellset(argarr, 0, args[1]);
+            }
             jl_value_t *result = jl_apply(f, jl_cell_data(argarr), jl_array_len(argarr));
             JL_GC_POP();
             return result;
@@ -480,7 +488,9 @@ JL_CALLABLE(jl_f_apply)
     //          since they are allocated before `arg_heap`. Otherwise,
     //          we need to add write barrier for !onstack
     n = 0;
-    for(i=1; i < nargs; i++) {
+    if (wrap_arg1)
+        newargs[n++] = args[1];
+    for (i = 1 + wrap_arg1;i < nargs;i++) {
         if (jl_is_svec(args[i])) {
             jl_svec_t *t = (jl_svec_t*)args[i];
             size_t al = jl_svec_len(t);
@@ -519,21 +529,22 @@ JL_CALLABLE(jl_f_kwcall)
 {
     if (nargs < 4)
         jl_error("internal error: malformed keyword argument call");
+    // Arguments are:
+    //   (call, nkeys, [nkeys x pairs of (name, value)], f, kwcontainer, args...)
     jl_function_t *f;
     jl_function_t *call_func = (jl_function_t*)args[0];
     assert(jl_is_function(call_func));
     size_t nkeys = jl_unbox_long(args[1]);
-    size_t pa = 4 + 2*nkeys;
+    const size_t pa = 4 + 2*nkeys;
     jl_array_t *container = (jl_array_t*)args[pa-1];
     assert(jl_array_len(container) > 0);
     f = (jl_function_t*)args[pa-2];
+    int switch_f = 0;
     if (!jl_is_function(f)) {
         // do generic call(args...; kws...) instead
-        // switch (f container pa...) to (container f pa...)
-        args[pa-2] = args[pa-1];     // TODO: this might not be safe
-        args[pa-1] = (jl_value_t*)f;
+        // need to switch (f container pa...) to (container f pa...)
+        switch_f = 1;
         f = call_func;
-        pa--;
     }
 
     if (!jl_is_gf(f))
@@ -543,22 +554,43 @@ JL_CALLABLE(jl_f_kwcall)
         jl_exceptionf(jl_argumenterror_type, "function %s does not accept keyword arguments",
                       jl_symbol_name(jl_gf_name(f)));
     }
+    assert(jl_is_gf(sorter));
 
     for(size_t i=0; i < nkeys*2; i+=2) {
         jl_cellset(container, i  , args[2+i]);
         jl_cellset(container, i+1, args[2+i+1]);
     }
 
-    args += pa-1;
-    nargs -= pa-1;
-    assert(jl_is_gf(sorter));
+    nargs -= pa - 1 - switch_f;
+    jl_value_t **newargs;
+    int onstack = nargs < jl_page_size / sizeof(jl_value_t*);
+    JL_GC_PUSHARGS(newargs, (onstack && switch_f) ? nargs : 1);
+    if (!switch_f) {
+        args += pa - 1;
+    }
+    else {
+        if (!onstack) {
+            // put arguments on the heap if there are too many
+            jl_svec_t *arg_heap = jl_alloc_svec(nargs);
+            newargs[0] = (jl_value_t*)arg_heap;
+            newargs = jl_svec_data(arg_heap);
+        }
+        // We don't need wb here since arg_heap is newly allocated
+        newargs[0] = (jl_value_t*)container;
+        newargs[1] = args[pa - 2]; // old f
+        memcpy((void*)&newargs[2], (void*)&args[pa], (nargs - 2) * sizeof(void*));
+        args = newargs;
+    }
     jl_function_t *m = jl_method_lookup((jl_methtable_t*)sorter->env, args, nargs, 1);
     if (m == jl_bottom_func) {
         jl_no_method_error(f, args+1, nargs-1);
         // unreachable
     }
 
-    return jl_apply(m, args, nargs);
+    // root m
+    jl_value_t *res = jl_apply(m, args, nargs);
+    JL_GC_POP();
+    return res;
 }
 
 // eval -----------------------------------------------------------------------

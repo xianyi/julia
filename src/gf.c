@@ -24,7 +24,8 @@
 extern "C" {
 #endif
 
-static jl_value_t *jl_apply_unspecialized(jl_function_t *meth, jl_value_t **args, uint32_t nargs)
+static jl_value_t *jl_apply_unspecialized(jl_function_t *meth,
+                                          jl_value_t *const *args, uint32_t nargs)
 {
     jl_function_t *unspecialized = meth->linfo->unspecialized;
     assert(unspecialized != jl_bottom_func);
@@ -103,8 +104,8 @@ static int cache_match_by_type(jl_value_t **types, size_t n, jl_tupletype_t *sig
     return 1;
 }
 
-static inline int cache_match(jl_value_t **args, size_t n, jl_tupletype_t *sig,
-                              int va, size_t lensig)
+static inline int cache_match(jl_value_t *const *args, size_t n,
+                              jl_tupletype_t *sig, int va, size_t lensig)
 {
     // NOTE: This function is a huge performance hot spot!!
     for(size_t i=0; i < n; i++) {
@@ -243,7 +244,7 @@ static jl_function_t *jl_method_table_assoc_exact_by_type(jl_methtable_t *mt, jl
     return jl_bottom_func;
 }
 
-static jl_function_t *jl_method_table_assoc_exact(jl_methtable_t *mt, jl_value_t **args, size_t n)
+static jl_function_t *jl_method_table_assoc_exact(jl_methtable_t *mt, jl_value_t *const *args, size_t n)
 {
     // NOTE: This function is a huge performance hot spot!!
     jl_methlist_t *ml = (jl_methlist_t*)jl_nothing;
@@ -1405,7 +1406,7 @@ void JL_NORETURN jl_no_method_error_bare(jl_function_t *f, jl_value_t *args)
     // not reached
 }
 
-void JL_NORETURN jl_no_method_error(jl_function_t *f, jl_value_t **args,
+void JL_NORETURN jl_no_method_error(jl_function_t *f, jl_value_t *const *args,
                                     size_t na)
 {
     jl_value_t *argtup = jl_f_tuple(NULL, args, na);
@@ -1414,7 +1415,7 @@ void JL_NORETURN jl_no_method_error(jl_function_t *f, jl_value_t **args,
     // not reached
 }
 
-jl_tupletype_t *arg_type_tuple(jl_value_t **args, size_t nargs)
+jl_tupletype_t *arg_type_tuple(jl_value_t *const *args, size_t nargs)
 {
     jl_tupletype_t *tt;
     size_t i;
@@ -1463,7 +1464,7 @@ JL_DLLEXPORT int jl_method_exists(jl_methtable_t *mt, jl_tupletype_t *types)
     return jl_method_lookup_by_type(mt, types, 0, 0) != jl_bottom_func;
 }
 
-jl_function_t *jl_method_lookup(jl_methtable_t *mt, jl_value_t **args, size_t nargs, int cache)
+jl_function_t *jl_method_lookup(jl_methtable_t *mt, jl_value_t *const *args, size_t nargs, int cache)
 {
     jl_function_t *sf = jl_method_table_assoc_exact(mt, args, nargs);
     if (sf == jl_bottom_func) {
@@ -1983,7 +1984,7 @@ JL_DLLEXPORT jl_value_t *jl_gf_invoke_lookup(jl_function_t *gf,
 //
 // NOTE: assumes argument type is a subtype of the lookup type.
 jl_value_t *jl_gf_invoke(jl_function_t *gf, jl_tupletype_t *types,
-                         jl_value_t **args, size_t nargs)
+                         jl_value_t *const *args, size_t nargs)
 {
     assert(jl_is_gf(gf));
     jl_methtable_t *mt = jl_gf_mtable(gf);
