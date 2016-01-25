@@ -93,6 +93,15 @@ end
 # symbols are guaranteed not to contain embedded NUL
 convert(::Type{Cstring}, s::Symbol) = Cstring(unsafe_convert(Ptr{Cchar}, s))
 
+# conversion between UTF-8-like data and UTF-16-like data for Windows APIs
+function utf8_to_utf16!(src::Vector{UInt8}, dst::Vector{UInt16})
+
+end
+
+function utf16_to_utf8!(src::Vector{UInt16}, dst::Vector{UInt8})
+
+end
+
 # deferring (or un-deferring) ctrl-c handler for external C code that
 # is not interrupt safe (see also issue #2622).  The sigatomic_begin/end
 # functions should always be called in matched pairs, ideally via:

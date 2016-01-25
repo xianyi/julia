@@ -117,7 +117,6 @@ export
     Tridiagonal,
     UnitRange,
     UpperTriangular,
-    UTF16String,
     Val,
     VecOrMat,
     Vector,
@@ -891,7 +890,6 @@ export
     unescape_string,
     uppercase,
     utf8,
-    utf16,
     warn,
     xdump,
 
