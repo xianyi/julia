@@ -93,12 +93,53 @@ end
 # symbols are guaranteed not to contain embedded NUL
 convert(::Type{Cstring}, s::Symbol) = Cstring(unsafe_convert(Ptr{Cchar}, s))
 
-# conversion between UTF-8-like data and UTF-16-like data for Windows APIs
-function utf8_to_utf16!(src::Vector{UInt8}, dst::Vector{UInt16})
+# conversions between UTF-8 and UTF-16 for Windows APIs
 
+function utf8_to_utf16(src::Vector{UInt8})
+    dst = UInt16[]
+    i, n = 1, length(src)
+    n > 0 || return dst
+    sizehint!(dst, 2n)
+    a = src[1]
+    @inbounds while true
+        if (-8 <= (a % Int8)) | (i >= n) # ASCII or invalid UTF-8 (leading continuation byte)
+            push!(dst, a)
+        else # 2/3/4-byte character
+            b = src[i += 1]
+            if b & 0xc0 != 0x80 # invalid UTF-8 (non-continuation byte)
+                push!(dst, a)
+                a = b; continue
+            elseif a < 0xe0 # 2-byte UTF-8
+                push!(dst, 0x3080 $ (UInt16(a) << 6) $ b)
+            elseif i < n # 3/4-byte character
+                c = src[i += 1]
+                if c & 0xc0 != 0x80 # invalid UTF-8 (non-continuation byte)
+                    push!(dst, a, b)
+                    a = c; continue
+                elseif a < 0xf0 # 3-byte UTF-8
+                    push!(dst, 0x2080 $ (UInt16(a) << 12) $ (UInt16(b) << 6) $ c)
+                else i < n
+                    d = src[i += 1]
+                    if d & 0xc0 != 0x80 # invalid UTF-8 (non-continuation byte)
+                        push!(dst, a, b, c)
+                        a = d; continue
+                    else # 4-byte UTF-8
+                        push!(dst, 0xe5b8 + (UInt16(a) << 8) + (UInt16(b) << 2) + (c >> 4),
+                                   0xdc80 $ (UInt16(c & 0xf) << 6) $ d)
+                    end
+                end
+            else
+                push!(dst, a, b)
+                break
+            end
+        end
+        i < n || break
+        a = src[i += 1]
+    end
+    return dst
 end
 
-function utf16_to_utf8!(src::Vector{UInt16}, dst::Vector{UInt8})
+function utf16_to_utf8(src::Vector{UInt16})
 
 end
 
