@@ -140,7 +140,43 @@ function utf8_to_utf16(src::Vector{UInt8})
 end
 
 function utf16_to_utf8(src::Vector{UInt16})
-
+    dst = UInt8[]
+    i, n = 1, length(src)
+    n > 0 || return dst
+    sizehint!(dst, n)
+    a = src[1]
+    while true
+        if a < 0x80 # ASCII
+            push!(dst, a % UInt8)
+        elseif a < 0x800 # 2-byte UTF-8
+            push!(dst, 0xc0 | ((a >> 6) % UInt8),
+                       0x80 | ((a % UInt8) & 0x3f))
+        elseif ((a & 0xfc00) == 0xd800) & (i < n)
+            b = src[i += 1]
+            if (b & 0xfc00) == 0xdc00
+                # 2-unit UTF-16 sequence => 4-byte UTF-8
+                a += 0x2840
+                push!(dst, 0xf0 | ((a >> 8) % UInt8),
+                           0x80 | ((a % UInt8) >> 2),
+                           0xf0 $ ((((a % UInt8) << 4) & 0x3f) $ (b >> 6) % UInt8),
+                           0x80 | ((b % UInt8) & 0x3f))
+            else
+                push!(dst, 0xe0 | ((a >> 12) % UInt8),
+                           0x80 | (((a >> 6) % UInt8) & 0x3f),
+                           0x80 | ((a % UInt8) & 0x3f))
+                a = b; continue
+            end
+        else
+            # 1-unit high UTF-16 or unpaired high surrogate
+            # either way, encode as 3-byte UTF-8 code point
+            push!(dst, 0xe0 | ((a >> 12) % UInt8),
+                       0x80 | (((a >> 6) % UInt8) & 0x3f),
+                       0x80 | ((a % UInt8) & 0x3f))
+        end
+        i < n || break
+        a = src[i += 1]
+    end
+    return dst
 end
 
 # deferring (or un-deferring) ctrl-c handler for external C code that
