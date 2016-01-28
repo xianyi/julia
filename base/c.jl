@@ -101,26 +101,25 @@ function utf8_to_utf16(src::Vector{UInt8})
     n > 0 || return dst
     sizehint!(dst, 2n)
     a = src[1]
-    @inbounds while true
-        if (-8 <= (a % Int8)) | (i >= n) # ASCII or invalid UTF-8 (leading continuation byte)
-            push!(dst, a)
-        else # 2/3/4-byte character
+    while true
+        if i < n && -64 <= a % Int8 <= -12 # multi-byte character
             b = src[i += 1]
-            if b & 0xc0 != 0x80 # invalid UTF-8 (non-continuation byte)
+            if -64 <= (b % Int8) || (a == 0xf4) && (0x8f < b)
+                # invalid UTF-8 (non-continuation or too-high code point)
                 push!(dst, a)
                 a = b; continue
             elseif a < 0xe0 # 2-byte UTF-8
                 push!(dst, 0x3080 $ (UInt16(a) << 6) $ b)
             elseif i < n # 3/4-byte character
                 c = src[i += 1]
-                if c & 0xc0 != 0x80 # invalid UTF-8 (non-continuation byte)
+                if -64 <= (c % Int8) # invalid UTF-8 (non-continuation)
                     push!(dst, a, b)
                     a = c; continue
                 elseif a < 0xf0 # 3-byte UTF-8
                     push!(dst, 0x2080 $ (UInt16(a) << 12) $ (UInt16(b) << 6) $ c)
-                else i < n
+                elseif i < n
                     d = src[i += 1]
-                    if d & 0xc0 != 0x80 # invalid UTF-8 (non-continuation byte)
+                    if -64 <= (d % Int8) # invalid UTF-8 (non-continuation)
                         push!(dst, a, b, c)
                         a = d; continue
                     else # 4-byte UTF-8
@@ -132,6 +131,8 @@ function utf8_to_utf16(src::Vector{UInt8})
                 push!(dst, a, b)
                 break
             end
+        else # ASCII or invalid UTF-8 (continuation byte or too-high code point)
+            push!(dst, a)
         end
         i < n || break
         a = src[i += 1]
