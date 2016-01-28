@@ -85,7 +85,7 @@ static const char opts[]  =
     " --no-history-file         Don't load history file (deprecated, use --history-file=no)\n\n"
 
     // code generation options
-    " --compile={yes|no|all}    Enable or disable compiler, or request exhaustive compilation\n"
+    " --compile={yes|no|all|min}Enable or disable JIT compiler, or request exhaustive compilation\n"
     " -C, --cpu-target <target> Limit usage of cpu features up to <target>\n"
     " -O, --optimize            Run time-intensive code optimizations\n"
     " --inline={yes|no}         Control whether inlining is permitted (overrides functions declared as @inline)\n"
@@ -312,6 +312,8 @@ void parse_opts(int *argcp, char ***argvp)
                 jl_options.compile_enabled = JL_OPTIONS_COMPILE_OFF;
             else if (!strcmp(optarg,"all"))
                 jl_options.compile_enabled = JL_OPTIONS_COMPILE_ALL;
+            else if (!strcmp(optarg,"min"))
+                jl_options.compile_enabled = JL_OPTIONS_COMPILE_MIN;
             else
                 jl_errorf("julia: invalid argument to --compile (%s)", optarg);
             break;

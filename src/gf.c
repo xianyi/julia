@@ -302,7 +302,7 @@ static jl_lambda_info_t *jl_add_static_parameters(jl_lambda_info_t *l, jl_svec_t
             nli->functionObjects.cFunctionList == NULL &&
             nli->functionID == 0 &&
             nli->specFunctionID == 0));
-    if (jl_options.compile_enabled == JL_OPTIONS_COMPILE_OFF) {
+    if (jl_options.compile_enabled == JL_OPTIONS_COMPILE_OFF || jl_options.compile_enabled == JL_OPTIONS_COMPILE_MIN) {
         // copy fptr from the unspecialized method definition
         jl_lambda_info_t *unspec = l->unspecialized;
         if (unspec != NULL) {
@@ -313,7 +313,7 @@ static jl_lambda_info_t *jl_add_static_parameters(jl_lambda_info_t *l, jl_svec_t
             nli->functionID = unspec->functionID;
             nli->specFunctionID = unspec->functionID;
         }
-        if (nli->fptr == NULL) {
+        if (jl_options.compile_enabled == JL_OPTIONS_COMPILE_OFF && nli->fptr == NULL) {
             jl_printf(JL_STDERR,"code missing for ");
             jl_static_show(JL_STDERR, (jl_value_t*)nli);
             jl_printf(JL_STDERR, "  sysimg may not have been built with --compile=all\n");
@@ -432,12 +432,13 @@ void jl_type_infer(jl_lambda_info_t *li, jl_lambda_info_t *def)
 #endif
 #ifdef ENABLE_INFERENCE
         jl_value_t *newast = jl_apply(fargs, 4);
+        jl_value_t *defast = def->ast;
         li->ast = jl_fieldref(newast, 0);
         jl_gc_wb(li, li->ast);
         li->rettype = jl_fieldref(newast, 1);
         jl_gc_wb(li, li->rettype);
         // if type inference bails out it returns def->ast
-        li->inferred = li->ast != def->ast;
+        li->inferred = li->ast != defast;
 #endif
         li->inInference = 0;
     }
@@ -1708,6 +1709,8 @@ static void _compile_all_deq(jl_array_t *found)
         if (!linfo->inferred) {
             // force this function to be recompiled
             jl_type_infer(linfo, linfo);
+            linfo->inferred = 1;
+            linfo->jlcall_api = 0;
             linfo->functionObjects.functionObject = NULL;
             linfo->functionObjects.specFunctionObject = NULL;
             linfo->functionObjects.cFunctionList = NULL;

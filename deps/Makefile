@@ -667,6 +667,8 @@ $(eval $(call LLVM_PATCH,win64-int128.llvm-3.3))
 else ifeq ($(LLVM_VER),3.7.0)
 $(eval $(call LLVM_PATCH,llvm-3.7.0))
 $(eval $(call LLVM_PATCH,llvm-3.7.1))
+$(eval $(call LLVM_PATCH,llvm-3.7.1_2))
+$(LLVM_SRC_DIR)/llvm-3.7.1_2.patch-applied: $(LLVM_SRC_DIR)/llvm-3.7.1.patch-applied
 else ifeq ($(LLVM_VER),3.7.1)
 $(eval $(call LLVM_PATCH,llvm-3.7.1))
 $(eval $(call LLVM_PATCH,llvm-3.7.1_2))
