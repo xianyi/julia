@@ -513,7 +513,7 @@ static native_sym_arg_t interpret_symbol_arg(jl_value_t *arg, jl_codectx_t *ctx,
             ptr = jl_fieldref(ptr,0);
         }
         if (jl_is_symbol(ptr))
-            f_name = ((jl_sym_t*)ptr)->name;
+            f_name = jl_symbol_name((jl_sym_t*)ptr);
         else if (jl_is_byte_string(ptr))
             f_name = jl_string_data(ptr);
         if (f_name != NULL) {
@@ -530,13 +530,13 @@ static native_sym_arg_t interpret_symbol_arg(jl_value_t *arg, jl_codectx_t *ctx,
             jl_value_t *t0 = jl_fieldref(ptr,0);
             jl_value_t *t1 = jl_fieldref(ptr,1);
             if (jl_is_symbol(t0))
-                f_name = ((jl_sym_t*)t0)->name;
+                f_name = jl_symbol_name((jl_sym_t*)t0);
             else if (jl_is_byte_string(t0))
                 f_name = jl_string_data(t0);
             else
                 JL_TYPECHKS(fname, symbol, t0);
             if (jl_is_symbol(t1))
-                f_lib = ((jl_sym_t*)t1)->name;
+                f_lib = jl_symbol_name((jl_sym_t*)t1);
             else if (jl_is_byte_string(t1))
                 f_lib = jl_string_data(t1);
             else
@@ -1459,7 +1459,6 @@ static Value *emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
         if (lrt == T_void)
             result = literal_pointer_val((jl_value_t*)jl_nothing);
         else if (lrt->isStructTy()) {
-            //fprintf(stderr, "ccall rt: %s -> %s\n", f_name, ((jl_tag_type_t*)rt)->name->name->name);
             assert(jl_is_structtype(rt));
             Value *newst = emit_new_struct(rt,1,NULL,ctx);
             assert(newst != NULL && "Type was not concrete");

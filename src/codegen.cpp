@@ -479,11 +479,17 @@ typedef struct {
 } jl_codectx_t;
 
 typedef struct {
+    int64_t isref;
+    Function *f;
+} cFunction_t;
+
+typedef struct {
     size_t len;
-    struct {
-        int64_t isref;
-        Function *f;
-    } data[];
+    // cFunction_t data[];
+    cFunction_t *data()
+    {
+        return (cFunction_t*)((char*)this + sizeof(*this));
+    }
 } cFunctionList_t;
 
 static Value *emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool boxed=true, bool valuepos=true);
@@ -578,7 +584,7 @@ static Value *alloc_local(jl_sym_t *s, jl_codectx_t *ctx)
     assert(vtype != jl_pvalue_llvmt);
     if (!type_is_ghost(vtype)) {
         // CreateAlloca is OK here because alloc_local is only called during prologue setup
-        lv = builder.CreateAlloca(vtype, 0, s->name);
+        lv = builder.CreateAlloca(vtype, 0, jl_symbol_name(s));
         if (vtype != jl_pvalue_llvmt)
             lv = mark_julia_type(lv, jt);
         vi.isGhost = false;
@@ -653,7 +659,7 @@ static Function *to_function(jl_lambda_info_t *li)
             builder.SetCurrentDebugLocation(olddl);
         }
         JL_SIGATOMIC_END();
-        jl_rethrow_with_add("error compiling %s", li->name->name);
+        jl_rethrow_with_add("error compiling %s", jl_symbol_name(li->name));
     }
     assert(f != NULL);
 #ifdef JL_DEBUG_BUILD
@@ -674,9 +680,9 @@ static Function *to_function(jl_lambda_info_t *li)
     FPM->run(*f);
     //n_compile++;
     // print out the function's LLVM code
-    //jl_static_show(JL_STDERR, (jl_value_t*)li);
-    //jl_printf(JL_STDERR, "%s:%d\n",
-    //           ((jl_sym_t*)li->file)->name, li->line);
+    // jl_static_show(JL_STDERR, (jl_value_t*)li);
+    // jl_printf(JL_STDERR, "%s:%d\n",
+    //           jl_symbol_name((jl_sym_t*)li->file), li->line);
     //f->dump();
     //if (verifyFunction(*f,PrintMessageAction)) {
     //    f->dump();
@@ -751,7 +757,7 @@ extern "C" void jl_generate_fptr(jl_function_t *f)
                 size_t i;
                 cFunctionList_t *list = (cFunctionList_t*)li->cFunctionList;
                 for (i = 0; i < list->len; i++) {
-                    list->data[i].f = mover.CloneFunction(list->data[i].f);
+                    list->data()[i].f = mover.CloneFunction(list->data()[i].f);
                 }
             }
         }
@@ -774,13 +780,13 @@ extern "C" void jl_generate_fptr(jl_function_t *f)
             cFunctionList_t *list = (cFunctionList_t*)li->cFunctionList;
             for (i = 0; i < list->len; i++) {
 #ifdef USE_MCJIT
-                (void)jl_ExecutionEngine->getFunctionAddress(list->data[i].f->getName());
+                (void)jl_ExecutionEngine->getFunctionAddress(list->data()[i].f->getName());
 #else
-                (void)jl_ExecutionEngine->getPointerToFunction(list->data[i].f);
+                (void)jl_ExecutionEngine->getPointerToFunction(list->data()[i].f);
 #endif
 #ifndef KEEP_BODIES
                 if (!imaging_mode) {
-                    list->data[i].f->deleteBody();
+                    list->data()[i].f->deleteBody();
                 }
 #endif
             }
@@ -869,19 +875,20 @@ static Function *jl_cfunction_object(jl_function_t *f, jl_value_t *rt, jl_tuplet
         jl_lambda_info_t *li = ff->linfo;
         if (!jl_types_equal((jl_value_t*)li->specTypes, sigt)) {
             jl_errorf("cfunction: type signature of %s does not match specification",
-                      li->name->name);
+                      jl_symbol_name(li->name));
         }
         jl_value_t *astrt = jl_ast_rettype(li, li->ast);
         if (rt != NULL) {
             if (astrt == (jl_value_t*)jl_bottom_type) {
                 if (rt != (jl_value_t*)jl_void_type) {
                     // a function that doesn't return can be passed to C as void
-                    jl_errorf("cfunction: %s does not return", li->name->name);
+                    jl_errorf("cfunction: %s does not return",
+                              jl_symbol_name(li->name));
                 }
             }
             else if (!jl_subtype(astrt, rt, 0)) {
                 jl_errorf("cfunction: return type of %s does not match",
-                          li->name->name);
+                          jl_symbol_name(li->name));
             }
         }
         JL_GC_POP(); // kill list: sigt
@@ -1272,7 +1279,8 @@ extern "C" void jl_write_malloc_log(void)
 static void show_source_loc(JL_STREAM *out, jl_codectx_t *ctx)
 {
     if (ctx == NULL) return;
-    jl_printf(out, "in %s at %s:%d", ctx->linfo->name->name, ctx->linfo->file->name, ctx->lineno);
+    jl_printf(out, "in %s at %s:%d", jl_symbol_name(ctx->linfo->name),
+              jl_symbol_name(ctx->linfo->file), ctx->lineno);
 }
 
 extern "C" void jl_binding_deprecation_warning(jl_binding_t *b);
@@ -3461,7 +3469,7 @@ static Value *emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, bool 
         return literal_pointer_val((jl_value_t*)jl_nothing);  // will change as new metadata gets added
     }
     else {
-        if (!strcmp(head->name, "$"))
+        if (!strcmp(jl_symbol_name(head), "$"))
             jl_error("syntax: prefix \"$\" in non-quoted expression");
         if (jl_is_toplevel_only_expr(expr) &&
             ctx->linfo->name == anonymous_sym && ctx->vars.empty() &&
@@ -3483,7 +3491,8 @@ static Value *emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, bool 
             }
             else {
                 jl_errorf("unsupported or misplaced expression \"%s\" in function %s",
-                          head->name, ctx->linfo->name->name);
+                          jl_symbol_name(head),
+                          jl_symbol_name(ctx->linfo->name));
             }
         }
     }
@@ -3585,8 +3594,8 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
     if (list != NULL) {
         size_t i;
         for (i = 0; i < list->len; i++) {
-            if (list->data[i].isref == isref) {
-                return list->data[i].f;
+            if (list->data()[i].isref == isref) {
+                return list->data()[i].f;
             }
         }
     }
@@ -3620,11 +3629,12 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
 
     jl_compile(ff);
     if (!lam->functionObject) {
-        jl_errorf("error compiling %s while creating cfunction", lam->name->name);
+        jl_errorf("error compiling %s while creating cfunction",
+                  jl_symbol_name(lam->name));
     }
 
     std::stringstream funcName;
-    funcName << "jlcapi_" << lam->name->name << "_" << globalUnique++;
+    funcName << "jlcapi_" << jl_symbol_name(lam->name) << "_" << globalUnique++;
 
     // Backup the info for the nested compile
     JL_SIGATOMIC_BEGIN(); // no errors expected beyond this point
@@ -3665,12 +3675,12 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
 
     // Save the Function object reference
     int len = (list ? list->len : 0) + 1;
-    cFunctionList_t *list2 = (cFunctionList_t*)realloc(list, sizeof(*list)+sizeof(list->data[0])*len);
+    cFunctionList_t *list2 = (cFunctionList_t*)realloc(list, sizeof(cFunctionList_t)+sizeof(list->data()[0])*len);
     if (!list2)
         jl_throw(jl_memory_exception);
     list2->len = len;
-    list2->data[len-1].isref = isref;
-    list2->data[len-1].f = cw;
+    list2->data()[len-1].isref = isref;
+    list2->data()[len-1].f = cw;
     lam->cFunctionList = list2;
 
     // See whether this function is specsig or jlcall
@@ -3973,7 +3983,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
     ctx.ast = ast;
     ctx.sp = sparams;
     ctx.linfo = lam;
-    ctx.funcName = lam->name->name;
+    ctx.funcName = jl_symbol_name(lam->name);
     ctx.vaName = NULL;
     ctx.vaStack = false;
     ctx.boundsCheck.push_back(true);
@@ -4074,7 +4084,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
 
     std::stringstream funcName;
     // try to avoid conflicts in the global symbol table
-    funcName << "julia_" << lam->name->name;
+    funcName << "julia_" << jl_symbol_name(lam->name);
 
     Module *m;
 #ifdef USE_MCJIT
@@ -4164,12 +4174,12 @@ static Function *emit_function(jl_lambda_info_t *lam)
     bool do_malloc_log = jl_options.malloc_log  == JL_LOG_ALL || (jl_options.malloc_log    == JL_LOG_USER && in_user_code);
     jl_value_t *stmt = skip_meta(stmts);
     std::string filename = "no file";
-    char *dbgFuncName = lam->name->name;
+    char *dbgFuncName = jl_symbol_name(lam->name);
     int lno = -1;
     // look for initial (line num filename [funcname]) node, [funcname] for kwarg methods.
     if (jl_is_linenode(stmt)) {
         lno = jl_linenode_line(stmt);
-        filename = jl_linenode_file(stmt)->name;
+        filename = jl_symbol_name(jl_linenode_file(stmt));
     }
     else if (jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == line_sym &&
              jl_array_dim0(((jl_expr_t*)stmt)->args) > 0) {
@@ -4179,11 +4189,11 @@ static Function *emit_function(jl_lambda_info_t *lam)
         if (jl_array_dim0(((jl_expr_t*)stmt)->args) > 1) {
             a1 = jl_exprarg(stmt,1);
             if (jl_is_symbol(a1))
-                filename = ((jl_sym_t*)a1)->name;
+                filename = jl_symbol_name((jl_sym_t*)a1);
             if (jl_array_dim0(((jl_expr_t*)stmt)->args) > 2) {
                 a1 = jl_exprarg(stmt,2);
                 if (jl_is_symbol(a1))
-                    dbgFuncName = ((jl_sym_t*)a1)->name;
+                    dbgFuncName = jl_symbol_name((jl_sym_t*)a1);
             }
         }
     }
@@ -4203,8 +4213,8 @@ static Function *emit_function(jl_lambda_info_t *lam)
     BasicBlock *b0 = BasicBlock::Create(jl_LLVMContext, "top", f);
     builder.SetInsertPoint(b0);
 
-    //jl_printf(JL_STDERR, "\n*** compiling %s at %s:%d\n\n",
-    //           lam->name->name, filename.c_str(), lno);
+    // jl_printf(JL_STDERR, "\n*** compiling %s at %s:%d\n\n",
+    //           jl_symbol_name(lam->name), filename.c_str(), lno);
 
     DebugLoc noDbg;
     ctx.debug_enabled = true;
@@ -4296,7 +4306,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
 #ifdef LLVM38
             varinfo.dinfo = ctx.dbuilder->createParameterVariable(
                 SP,                                 // Scope (current function will be fill in later)
-                argname->name,                      // Variable name
+                jl_symbol_name(argname),            // Variable name
                 ctx.sret + i + 1,                                // Argument number (1-based)
                 topfile,                            // File
                 ctx.lineno == -1 ? 0 : ctx.lineno,  // Line
@@ -4306,7 +4316,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
             varinfo.dinfo = ctx.dbuilder->createLocalVariable(
                 llvm::dwarf::DW_TAG_arg_variable,    // Tag
                 SP,         // Scope (current function will be fill in later)
-                argname->name,    // Variable name
+                jl_symbol_name(argname),    // Variable name
                 topfile,                    // File
                 ctx.lineno == -1 ? 0 : ctx.lineno,             // Line (for now, use lineno of the function)
                 julia_type_to_di(varinfo.declType,ctx.dbuilder,specsig), // Variable type
@@ -4319,7 +4329,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
 #ifdef LLVM38
             ctx.vars[ctx.vaName].dinfo = ctx.dbuilder->createParameterVariable(
                 SP,                     // Scope (current function will be fill in later)
-                ctx.vaName->name,       // Variable name
+                jl_symbol_name(ctx.vaName),        // Variable name
                 ctx.sret + nreq + 1,               // Argument number (1-based)
                 topfile,                    // File
                 ctx.lineno == -1 ? 0 : ctx.lineno,             // Line (for now, use lineno of the function)
@@ -4328,8 +4338,8 @@ static Function *emit_function(jl_lambda_info_t *lam)
             ctx.vars[ctx.vaName].dinfo = ctx.dbuilder->createLocalVariable(
                 llvm::dwarf::DW_TAG_arg_variable,   // Tag
                 SP,                                 // Scope (current function will be fill in later)
-                ctx.vaName->name,                   // Variable name
-                topfile,                             // File
+                jl_symbol_name(ctx.vaName),         // Variable name
+                topfile,                            // File
                 ctx.lineno == -1 ? 0 : ctx.lineno,  // Line (for now, use lineno of the function)
                 julia_type_to_di(ctx.vars[ctx.vaName].declType,ctx.dbuilder,false),      // Variable type
                 false,                  // May be optimized out
@@ -4349,7 +4359,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
                 llvm::dwarf::DW_TAG_auto_variable,    // Tag
 #endif
                 SP,                     // Scope (current function will be fill in later)
-                s->name,                // Variable name
+                jl_symbol_name(s),       // Variable name
                 topfile,                 // File
                 ctx.lineno == -1 ? 0 : ctx.lineno, // Line (for now, use lineno of the function)
                 julia_type_to_di(varinfo.declType,ctx.dbuilder,specsig), // Variable type
@@ -4373,7 +4383,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
                 llvm::dwarf::DW_TAG_auto_variable,    // Tag
 #endif
                 SP,                     // Scope (current function will be filled in later)
-                vname->name,            // Variable name
+                jl_symbol_name(vname),   // Variable name
                 topfile,                 // File
                 ctx.lineno == -1 ? 0 : ctx.lineno, // Line (for now, use lineno of the function)
                 julia_type_to_di(varinfo.declType,ctx.dbuilder,specsig), // Variable type
@@ -4714,7 +4724,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
                     }
                 }
             }
-            assert(file->name);
+            assert(jl_symbol_name(file));
 
 #           ifdef LLVM37
             DIFile *dfil = NULL;
@@ -4723,7 +4733,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
 #           endif
 
             // If the string is not empty
-            if (*file->name != '\0') {
+            if (*jl_symbol_name(file) != '\0') {
 #               ifdef LLVM37
                 std::map<jl_sym_t *, DIFile *>::iterator it = filescopes.find(file);
 #               else
@@ -4733,9 +4743,11 @@ static Function *emit_function(jl_lambda_info_t *lam)
                     dfil = it->second;
                 } else {
 #                   ifdef LLVM37
-                    dfil = (DIFile*)dbuilder.createFile(file->name, ".");
+                    dfil = (DIFile*)dbuilder.createFile(jl_symbol_name(file),
+                                                        ".");
 #                   else
-                    dfil = (MDNode*)dbuilder.createFile(file->name, ".");
+                    dfil = (MDNode*)dbuilder.createFile(jl_symbol_name(file),
+                                                        ".");
 #                   endif
                 }
             }
@@ -4890,7 +4902,7 @@ extern "C" void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig)
     }
     else {
         // this assigns a function pointer (from loading the system image), to the function object
-        std::string funcName = lam->name->name;
+        std::string funcName = jl_symbol_name(lam->name);
         funcName = "julia_" + funcName;
         if (specsig) { // assumes !va
             std::vector<Type*> fsig(0);
@@ -4938,7 +4950,7 @@ extern "C" DLLEXPORT jl_value_t *jl_new_box(jl_value_t *v)
     jl_value_t *box = (jl_value_t*)jl_gc_alloc_1w();
     jl_set_typeof(box, jl_box_any_type);
     // if (v) jl_gc_wb(box, v); // write block not needed: box was just allocated
-    box->fieldptr[0] = v;
+    *(jl_value_t**)box = v;
     return box;
 }
 
@@ -5008,8 +5020,8 @@ static void init_julia_llvm_env(Module *m)
         "jl_value_t",
         julia_h,
         71, // At the time of this writing. Not sure if it's worth it to keep this in sync
-        sizeof(jl_value_t)*8,
-        __alignof__(jl_value_t)*8,
+        0 * 8, // sizeof(jl_value_t) * 8,
+        __alignof__(void*) * 8, // __alignof__(jl_value_t) * 8,
         0, // Flags
 #ifdef LLVM37
         nullptr,    // Derived from
