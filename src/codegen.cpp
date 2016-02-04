@@ -4417,24 +4417,15 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
     // look for initial (line num filename [funcname]) node, [funcname] for kwarg methods.
     if (jl_is_linenode(stmt)) {
         lno = jl_linenode_line(stmt);
-        filename = jl_symbol_name(jl_linenode_file(stmt));
     }
     else if (jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == line_sym &&
              jl_array_dim0(((jl_expr_t*)stmt)->args) > 0) {
         jl_value_t *a1 = jl_exprarg(stmt,0);
         if (jl_is_long(a1))
             lno = jl_unbox_long(a1);
-        if (jl_array_dim0(((jl_expr_t*)stmt)->args) > 1) {
-            a1 = jl_exprarg(stmt,1);
-            if (jl_is_symbol(a1))
-                filename = jl_symbol_name((jl_sym_t*)a1);
-            if (jl_array_dim0(((jl_expr_t*)stmt)->args) > 2) {
-                a1 = jl_exprarg(stmt,2);
-                if (jl_is_symbol(a1))
-                    dbgFuncName = jl_symbol_name((jl_sym_t*)a1);
-            }
-        }
     }
+    if (lam->file != empty_sym)
+        filename = jl_symbol_name(lam->file);
     int toplineno = lno;
 
     DIBuilder dbuilder(*builtins_module);
@@ -4442,12 +4433,13 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
 #ifdef LLVM37
     DIFile *topfile = NULL;
     DISubprogram *SP = NULL;
+    std::vector<DILocation *> DI_loc_stack;
+    std::vector<DISubprogram *> DI_sp_stack;
     DICompileUnit *CU;
 #else
     DIFile topfile;
     DISubprogram SP;
 #endif
-    DebugLoc inlineLoc;
 
     BasicBlock *b0 = BasicBlock::Create(jl_LLVMContext, "top", f);
     builder.SetInsertPoint(b0);
@@ -4510,7 +4502,7 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
         #ifndef LLVM34
         SP = dbuilder.createFunction((DIDescriptor)dbuilder.getCU(),
         #else
-        SP = dbuilder.createFunction(CU,
+        SP = dbuilder.createFunction(topfile,
         #endif
                                     dbgFuncName,  // Name
                                     f->getName(), // LinkageName
@@ -4528,8 +4520,7 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
                                     f);             // Function
         #endif
         // set initial line number
-        inlineLoc = DebugLoc::get(lno, 0, (MDNode*)SP, NULL);
-        builder.SetCurrentDebugLocation(inlineLoc);
+        builder.SetCurrentDebugLocation(DebugLoc::get(lno, 0, (MDNode*)SP, NULL));
         #ifdef LLVM38
         f->setSubprogram(SP);
         #endif
@@ -4919,77 +4910,55 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
         if (jl_is_linenode(stmt) ||
             (jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == line_sym)) {
 
-            jl_sym_t *file = NULL;
+            //jl_sym_t *file = NULL;
             if (jl_is_linenode(stmt)) {
                 lno = jl_linenode_line(stmt);
-                file = jl_linenode_file(stmt);
             }
             else if (jl_is_expr(stmt)) {
                 lno = jl_unbox_long(jl_exprarg(stmt,0));
-                if (jl_array_dim0(((jl_expr_t*)stmt)->args) > 1) {
-                    jl_value_t *a1 = jl_exprarg(stmt,1);
-                    if (jl_is_symbol(a1)) {
-                        file = (jl_sym_t*)a1;
-                    }
-                }
             }
             assert(jl_symbol_name(file));
-
-#           ifdef LLVM37
-            DIFile *dfil = NULL;
-#           else
-            MDNode *dfil = NULL;
-#           endif
-
-            // If the string is not empty
-            if (*jl_symbol_name(file) != '\0') {
-#               ifdef LLVM37
-                std::map<jl_sym_t *, DIFile *>::iterator it = filescopes.find(file);
-#               else
-                std::map<jl_sym_t *, MDNode *>::iterator it = filescopes.find(file);
-#               endif
-                if (it != filescopes.end()) {
-                    dfil = it->second;
-                }
-                else {
-#                   ifdef LLVM37
-                    dfil = (DIFile*)dbuilder.createFile(jl_symbol_name(file),
-                                                        ".");
-#                   else
-                    dfil = (MDNode*)dbuilder.createFile(jl_symbol_name(file),
-                                                        ".");
-#                   endif
-                }
+            MDNode *inlinedAt = NULL;
+            if (DI_loc_stack.size() > 0) {
+                inlinedAt = DI_loc_stack.back();
             }
-            DebugLoc loc;
-            if (ctx.debug_enabled) {
-                MDNode *scope;
-                if ((dfil == topfile || dfil == NULL) &&
-                    lno >= toplineno)
-                    {
-                    // for sequentially-defined code,
-                    // set location to line in top file.
-                    // TODO: improve handling of nested inlines
-                    loc = inlineLoc = DebugLoc::get(lno, 1, SP, NULL);
-                }
-                else {
-                    // otherwise, we are compiling inlined code,
-                    // so set the DebugLoc "inlinedAt" parameter
-                    // to the current line, then use source loc.
-#ifdef LLVM37
-                    scope = (MDNode*)dbuilder.createLexicalBlockFile(SP,dfil);
-                    MDNode *inlineLocMd = inlineLoc.getAsMDNode();
-#else
-                    scope = (MDNode*)dbuilder.createLexicalBlockFile(SP,DIFile(dfil));
-                    MDNode *inlineLocMd = inlineLoc.getAsMDNode(jl_LLVMContext);
-#endif
-                    loc = DebugLoc::get(lno, 1, scope, inlineLocMd);
-                }
-                builder.SetCurrentDebugLocation(loc);
-            }
-            if (do_coverage)
-                coverageVisitLine(filename, lno);
+            if (ctx.debug_enabled) builder.SetCurrentDebugLocation(DebugLoc::get(lno, 0, (MDNode*)SP, inlinedAt));
         }
+        else if (ctx.debug_enabled && jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == meta_sym) {
+            jl_value_t *meta_arg = jl_cellref(((jl_expr_t*)stmt)->args, 0);
+            if (meta_arg == (jl_value_t*)jl_symbol("push_lambda")) {
+                DI_sp_stack.push_back(SP);
+                DI_loc_stack.push_back(builder.getCurrentDebugLocation());
+                jl_lambda_info_t *inlined_lam = (jl_lambda_info_t*)jl_cellref(((jl_expr_t*)stmt)->args, 1);
+                std::string inlined_filename = "no file";
+                if (inlined_lam->file != empty_sym)
+                    inlined_filename = jl_symbol_name(inlined_lam->file);
+                DIFile *inlined_file = dbuilder.createFile(inlined_filename, ".");
+                SP = dbuilder.createFunction(inlined_file,
+                                             jl_symbol_name(inlined_lam->name),
+                                             jl_symbol_name(inlined_lam->name),
+                                             inlined_file,
+                                             0,
+                                             jl_di_func_sig,
+                                             false,
+                                             true,
+                                             0,
+                                             0,
+                                             true,
+                                             nullptr);
+                builder.SetCurrentDebugLocation(DebugLoc::get(0, 0, (MDNode*)SP, builder.getCurrentDebugLocation()));
+            }
+            else if (meta_arg == (jl_value_t*)jl_symbol("pop_lambda")) {
+                SP = DI_sp_stack.back();
+                DI_sp_stack.pop_back(); // because why not make pop a void function
+                builder.SetCurrentDebugLocation(DI_loc_stack.back());
+                DI_loc_stack.pop_back();
+            }
+        }
+
+        DebugLoc loc;
+        if (do_coverage)
+            coverageVisitLine(filename, lno);
         if (jl_is_labelnode(stmt)) {
             if (prevlabel) continue;
             prevlabel = true;
